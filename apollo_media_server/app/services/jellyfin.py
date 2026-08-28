@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import httpx
 
 CLIENT_NAME = "Apollo Media Server"
-CLIENT_VERSION = "0.1.4"
+CLIENT_VERSION = "0.1.5"
 DEVICE_NAME = "Home Assistant Add-on"
 DEVICE_ID = "apollo-media-server"
 TICKS_PER_SECOND = 10_000_000
@@ -19,6 +19,11 @@ def _auth_header(token: str | None = None) -> str:
     if token:
         parts.append(f'Token="{token}"')
     return "MediaBrowser " + ", ".join(parts)
+
+
+def auth_headers(token: str | None = None) -> dict[str, str]:
+    """Headers for authenticated Jellyfin requests made by Apollo."""
+    return {"Authorization": _auth_header(token)}
 
 
 @dataclass
@@ -37,7 +42,7 @@ class JellyfinSyncPayload:
 
 async def authenticate(base_url: str, username: str, password: str) -> JellyfinConnectionResult:
     base_url = base_url.rstrip("/")
-    headers = {"Authorization": _auth_header()}
+    headers = auth_headers()
     async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
         server_resp = await client.get(f"{base_url}/System/Info/Public")
         server_resp.raise_for_status()
@@ -61,7 +66,7 @@ async def authenticate(base_url: str, username: str, password: str) -> JellyfinC
 
 async def validate_token(base_url: str, token: str) -> dict:
     base_url = base_url.rstrip("/")
-    headers = {"Authorization": _auth_header(token)}
+    headers = auth_headers(token)
     async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
         resp = await client.get(f"{base_url}/System/Info", headers=headers)
         resp.raise_for_status()
@@ -75,7 +80,7 @@ async def fetch_sync_payload(base_url: str, user_id: str, token: str) -> Jellyfi
     leave the last-known-good SQLite cache untouched.
     """
     base_url = base_url.rstrip("/")
-    headers = {"Authorization": _auth_header(token)}
+    headers = auth_headers(token)
     common_fields = "ProviderIds,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber"
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         catalog_resp = await client.get(

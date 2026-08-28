@@ -1,10 +1,17 @@
-# Apollo Media Home Assistant Add-on Repository
+# Apollo Media Home Assistant
 
-Development repository for Apollo Media Server.
+Home Assistant add-on repository for **Apollo Media Server**, the central catalog, profile, progress, and device-state service for Apollo Media.
 
-## Install locally for development
+Current release: **0.1.5**
 
-Copy the `apollo_media_server` directory into Home Assistant's `/addons` directory,
-then reload the Add-on Store. Apollo Media Server will appear under Local add-ons.
+Apollo stores application timestamps in UTC and renders user-facing server timestamps in the browser/device local timezone. The add-on currently uses SQLite in persistent Home Assistant add-on storage.
 
-The distributable repository URL/GitHub publishing step comes later.
+## Development releases
+
+After uploading a future `Apollo-HA-Addon-X.Y.Z-update.zip` to the repository root, run:
+
+```bash
+./release-update.sh Apollo-HA-Addon-X.Y.Z-update.zip
+```
+
+The helper validates the tree/archive, applies the update, stages it, verifies the diff, commits the version, and pushes `main`.

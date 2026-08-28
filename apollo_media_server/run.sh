@@ -5,7 +5,7 @@ LOG_LEVEL="$(bashio::config 'log_level')"
 export APOLLO_DATABASE_URL="sqlite:////config/apollo.db"
 export APOLLO_LOG_LEVEL="${LOG_LEVEL}"
 
-bashio::log.info "Starting Apollo Media Server 0.1.3"
+bashio::log.info "Starting Apollo Media Server 0.1.5"
 bashio::log.info "Database: persistent add-on config storage"
 
 exec uvicorn app.main:app \

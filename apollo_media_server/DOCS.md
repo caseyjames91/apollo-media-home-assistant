@@ -1,16 +1,13 @@
-# Apollo Media Server 0.1.4
+# Apollo Media Server
 
-This development build adds the first real integration setup flow: Jellyfin.
+Apollo Media Server centralizes Apollo profile, catalog, progress, and device state.
 
-## Validate
-1. Rebuild/reinstall the local add-on.
-2. Start it and open Apollo Media from the sidebar.
-3. Enter Jellyfin URL, username, and password.
-4. Press **Connect Jellyfin**.
-5. Apollo should show the connected server and user.
-6. Press **Test connection**.
+## 0.1.5
 
-Apollo stores the Jellyfin access token, not the password.
-The connection also creates/updates the first Apollo profile mapped to that Jellyfin user.
+The Web UI includes **Browse Apollo cache**, with Movies, Shows, and Continue Watching views. Artwork is proxied by Apollo so the Jellyfin access token is never placed in browser image URLs.
 
-The existing Kodi addon/card remain unchanged in 0.1.4.
+Database/API timestamps remain UTC. User-facing Web UI timestamps are rendered in the browser/device local timezone.
+
+## Jellyfin
+
+Connect Jellyfin from the add-on Web UI, then use **Sync library & Continue Watching**. Apollo caches Movies/Shows and profile resume state in SQLite and preserves last-known-good data when a remote sync fails.

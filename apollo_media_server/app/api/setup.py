@@ -11,38 +11,10 @@ from app.models.profile import Profile
 from app.models.sync_state import SyncState
 from app.services.jellyfin import authenticate, validate_token
 from app.services.catalog_sync import sync_jellyfin
+from app.ui import ingress_url, local_time_html, page
 
 router = APIRouter()
 
-def ingress_url(request: Request, path: str = "") -> str:
-    """Build a URL that remains inside Home Assistant ingress.
-
-    Home Assistant supplies X-Ingress-Path for ingress requests. Direct access
-    has no such header, so routes fall back to normal root-relative URLs.
-    """
-    base = request.headers.get("x-ingress-path", "").rstrip("/")
-    suffix = path.lstrip("/")
-    if base:
-        return f"{base}/{suffix}" if suffix else f"{base}/"
-    return f"/{suffix}" if suffix else "/"
-
-def page(body: str) -> HTMLResponse:
-    return HTMLResponse(f"""<!doctype html>
-<html>
-<head>
-<title>Apollo Media Server</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{{font-family:system-ui;background:#111;color:#eee;margin:0;padding:28px}}
-main{{max-width:760px;margin:auto}}h1,h2{{margin-bottom:.4rem}}
-.card{{background:#1b1b1b;border:1px solid #333;border-radius:14px;padding:20px;margin:18px 0}}
-label{{display:block;margin-top:12px;margin-bottom:5px;color:#bbb}}
-input{{width:100%;box-sizing:border-box;padding:11px;border-radius:8px;border:1px solid #444;background:#101010;color:#fff}}
-button{{margin-top:16px;padding:10px 16px;border:0;border-radius:8px;font-weight:700}}
-.ok{{color:#65d98b}}.bad{{color:#ff7c7c}}.muted{{color:#aaa}}
-code{{background:#222;padding:3px 6px;border-radius:5px}}
-</style>
-</head><body><main>{body}</main></body></html>""")
 
 @router.get("/", response_class=HTMLResponse)
 def root(request: Request, db: Session = Depends(get_db)):
@@ -78,7 +50,7 @@ def root(request: Request, db: Session = Depends(get_db)):
         </div>'''
     plist = "".join(f"<li>{escape(p.name)}</li>" for p in profiles) or "<li>No Apollo profiles yet</li>"
     if sync_state and sync_state.last_success_at:
-        sync_html = f"<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"ok\">Last sync succeeded.</p><p><b>Catalog:</b> {sync_state.catalog_items} items</p><p><b>Continue Watching:</b> {sync_state.continue_watching_items} items</p><p><b>Last sync:</b> {escape(str(sync_state.last_success_at))}</p></div>"
+        sync_html = f"<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"ok\">Last sync succeeded.</p><p><b>Catalog:</b> {sync_state.catalog_items} items</p><p><b>Continue Watching:</b> {sync_state.continue_watching_items} items</p><p><b>Last sync:</b> {local_time_html(sync_state.last_success_at)}</p></div>"
     elif sync_state and sync_state.last_error:
         sync_html = f"<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"bad\">Last sync failed.</p><p class=\"muted\">Last-known-good cache was preserved.</p><p>{escape(sync_state.last_error)}</p></div>"
     else:
@@ -86,7 +58,7 @@ def root(request: Request, db: Session = Depends(get_db)):
     return page(f'''
       <h1>Apollo Media Server</h1>
       <p class="ok">Server is running.</p>
-      <p>Version <code>0.1.4</code></p>
+      <p>Version <code>0.1.5</code></p><div class="nav"><a href="{escape(ingress_url(request, 'browser'))}">Browse Apollo cache</a></div>
       {status}
       {sync_html}
       <div class="card"><h2>Profiles</h2><ul>{plist}</ul></div>
