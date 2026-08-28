@@ -76,11 +76,22 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
         fraction = p.position_seconds / duration if duration > 0 else 0.0
         if p.position_seconds <= 0 or fraction >= 0.90:
             continue
+        series = None
+        if m.media_type == "episode":
+            series = db.scalar(select(Media).where(
+                Media.media_type == "show",
+                Media.canonical_id == m.canonical_id,
+            ))
         result.append(ContinueWatchingItem(
             media_id=m.id,
             media_type=m.media_type,
             canonical_id=m.canonical_id,
             title=m.title,
+            series_title=series.title if series else None,
+            imdb_id=m.imdb_id or (series.imdb_id if series else None),
+            tmdb_id=m.tmdb_id or (series.tmdb_id if series else None),
+            jellyfin_item_id=m.jellyfin_item_id,
+            artwork_jellyfin_item_id=(series.jellyfin_item_id if series else m.jellyfin_item_id),
             season=m.season,
             episode=m.episode,
             position_seconds=p.position_seconds,

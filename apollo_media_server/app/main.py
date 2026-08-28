@@ -12,7 +12,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Apollo Media Server",
-    version="0.1.5",
+    version="0.1.6",
     description="Central catalog/profile/device state service for Apollo Media",
     lifespan=lifespan,
 )

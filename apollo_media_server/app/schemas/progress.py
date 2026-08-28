@@ -20,6 +20,11 @@ class ContinueWatchingItem(BaseModel):
     media_type: str
     canonical_id: str
     title: str
+    series_title: str | None = None
+    imdb_id: str | None = None
+    tmdb_id: str | None = None
+    jellyfin_item_id: str | None = None
+    artwork_jellyfin_item_id: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float

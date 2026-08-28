@@ -2,7 +2,7 @@
 
 Apollo Media Server centralizes Apollo profile, catalog, progress, and device state.
 
-## 0.1.5
+## 0.1.6
 
 The Web UI includes **Browse Apollo cache**, with Movies, Shows, and Continue Watching views. Artwork is proxied by Apollo so the Jellyfin access token is never placed in browser image URLs.
 
