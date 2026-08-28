@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 import httpx
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.models.integration import Integration
 from app.models.profile import Profile
 from app.models.sync_state import SyncState
@@ -58,7 +59,7 @@ def root(request: Request, db: Session = Depends(get_db)):
     return page(f'''
       <h1>Apollo Media Server</h1>
       <p class="ok">Server is running.</p>
-      <p>Version <code>0.1.5</code></p><div class="nav"><a href="{escape(ingress_url(request, 'browser'))}">Browse Apollo cache</a></div>
+      <p>Version <code>{escape(settings.version)}</code></p><div class="nav"><a href="{escape(ingress_url(request, 'browser'))}">Browse Apollo cache</a></div>
       {status}
       {sync_html}
       <div class="card"><h2>Profiles</h2><ul>{plist}</ul></div>

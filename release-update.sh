@@ -41,6 +41,9 @@ unzip -oq "$ZIP"
 rm -f "$ZIP"
 
 VERSION="$(awk -F'"' '/^version:/ {print $2; exit}' apollo_media_server/config.yaml)"
+if [[ -x ./verify-release.sh ]]; then
+  ./verify-release.sh .
+fi
 if [[ -z "$VERSION" ]]; then
   echo "ERROR: Could not read version from config.yaml." >&2
   exit 1

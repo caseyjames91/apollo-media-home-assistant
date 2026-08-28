@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import httpx
 
+from app.core.config import settings
 CLIENT_NAME = "Apollo Media Server"
-CLIENT_VERSION = "0.1.5"
+CLIENT_VERSION = settings.version
 DEVICE_NAME = "Home Assistant Add-on"
 DEVICE_ID = "apollo-media-server"
 TICKS_PER_SECOND = 10_000_000

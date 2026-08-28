@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.api import catalog, devices, health, profiles, progress, setup, sync, debug
 from app.db.session import init_db
+from app.core.config import settings
 
 
 @asynccontextmanager
@@ -12,7 +13,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Apollo Media Server",
-    version="0.1.6",
+    version=settings.version,
     description="Central catalog/profile/device state service for Apollo Media",
     lifespan=lifespan,
 )

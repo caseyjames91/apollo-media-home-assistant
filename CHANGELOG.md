@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+- Runtime version now comes from Home Assistant `BUILD_VERSION`, sourced from `config.yaml`.
+- Removed stale hard-coded 0.1.5 runtime/UI/client version strings.
+- Added release verification to prevent package/runtime version drift.
+
 ## 0.1.6
 - Enrich profile-scoped Continue Watching responses with canonical provider IDs, Jellyfin item IDs, series identity, and artwork identity so Apollo clients can render and play cached items without relying on shared Home Assistant feed sensors.
 - Keeps AMS as the profile-state authority while Kodi remains the playback target.
