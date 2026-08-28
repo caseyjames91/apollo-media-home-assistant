@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8
+- Fix AMS runtime version resolving to `dev` inside the container.
+- Re-declare Home Assistant `BUILD_VERSION` inside the Docker build stage before exporting `APOLLO_VERSION`.
+- Keeps the Web UI, API, health endpoint, logs, and Jellyfin client version aligned with the add-on package version.
+
 ## 0.1.7
 - Runtime version now comes from Home Assistant `BUILD_VERSION`, sourced from `config.yaml`.
 - Removed stale hard-coded 0.1.5 runtime/UI/client version strings.

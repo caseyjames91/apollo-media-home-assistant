@@ -2,7 +2,7 @@
 
 Home Assistant add-on repository for **Apollo Media Server**, the central catalog, profile, progress, and device-state service for Apollo Media.
 
-Current release: **0.1.7**
+Current release: **0.1.8**
 
 Apollo stores application timestamps in UTC and renders user-facing server timestamps in the browser/device local timezone. The add-on currently uses SQLite in persistent Home Assistant add-on storage.
 

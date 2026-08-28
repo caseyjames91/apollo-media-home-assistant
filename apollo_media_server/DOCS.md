@@ -2,7 +2,7 @@
 
 Apollo Media Server centralizes Apollo profile, catalog, progress, and device state.
 
-## 0.1.7
+## 0.1.8
 - Runtime/UI/API/Jellyfin client version now inherit the Home Assistant build version.
 
 ## 0.1.6
