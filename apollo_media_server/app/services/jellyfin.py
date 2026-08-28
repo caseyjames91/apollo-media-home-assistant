@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import httpx
 
 CLIENT_NAME = "Apollo Media Server"
-CLIENT_VERSION = "0.1.3"
+CLIENT_VERSION = "0.1.4"
 DEVICE_NAME = "Home Assistant Add-on"
 DEVICE_ID = "apollo-media-server"
+TICKS_PER_SECOND = 10_000_000
+
 
 def _auth_header(token: str | None = None) -> str:
     parts = [
@@ -17,12 +20,20 @@ def _auth_header(token: str | None = None) -> str:
         parts.append(f'Token="{token}"')
     return "MediaBrowser " + ", ".join(parts)
 
+
 @dataclass
 class JellyfinConnectionResult:
     server_name: str
     user_id: str
     access_token: str
     username: str
+
+
+@dataclass
+class JellyfinSyncPayload:
+    catalog_items: list[dict]
+    resume_items: list[dict]
+
 
 async def authenticate(base_url: str, username: str, password: str) -> JellyfinConnectionResult:
     base_url = base_url.rstrip("/")
@@ -47,6 +58,7 @@ async def authenticate(base_url: str, username: str, password: str) -> JellyfinC
         username=payload["User"].get("Name") or username,
     )
 
+
 async def validate_token(base_url: str, token: str) -> dict:
     base_url = base_url.rstrip("/")
     headers = {"Authorization": _auth_header(token)}
@@ -54,3 +66,60 @@ async def validate_token(base_url: str, token: str) -> dict:
         resp = await client.get(f"{base_url}/System/Info", headers=headers)
         resp.raise_for_status()
         return resp.json()
+
+
+async def fetch_sync_payload(base_url: str, user_id: str, token: str) -> JellyfinSyncPayload:
+    """Fetch all remote data before touching Apollo's cache.
+
+    If either Jellyfin request fails, the caller receives an exception and can
+    leave the last-known-good SQLite cache untouched.
+    """
+    base_url = base_url.rstrip("/")
+    headers = {"Authorization": _auth_header(token)}
+    common_fields = "ProviderIds,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber"
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        catalog_resp = await client.get(
+            f"{base_url}/Users/{user_id}/Items",
+            headers=headers,
+            params={
+                "Recursive": "true",
+                "IncludeItemTypes": "Movie,Series",
+                "Fields": common_fields,
+                "SortBy": "SortName",
+                "SortOrder": "Ascending",
+            },
+        )
+        catalog_resp.raise_for_status()
+
+        resume_resp = await client.get(
+            f"{base_url}/Users/{user_id}/Items/Resume",
+            headers=headers,
+            params={
+                "Recursive": "true",
+                "MediaTypes": "Video",
+                "Fields": common_fields,
+                "Limit": "200",
+            },
+        )
+        resume_resp.raise_for_status()
+
+    return JellyfinSyncPayload(
+        catalog_items=(catalog_resp.json() or {}).get("Items", []),
+        resume_items=(resume_resp.json() or {}).get("Items", []),
+    )
+
+
+def ticks_to_seconds(value) -> float:
+    try:
+        return max(0.0, float(value or 0) / TICKS_PER_SECOND)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def parse_jellyfin_datetime(value: str | None) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)

@@ -8,7 +8,9 @@ import httpx
 from app.db.session import get_db
 from app.models.integration import Integration
 from app.models.profile import Profile
+from app.models.sync_state import SyncState
 from app.services.jellyfin import authenticate, validate_token
+from app.services.catalog_sync import sync_jellyfin
 
 router = APIRouter()
 
@@ -46,6 +48,7 @@ code{{background:#222;padding:3px 6px;border-radius:5px}}
 def root(request: Request, db: Session = Depends(get_db)):
     jellyfin = db.scalar(select(Integration).where(Integration.kind == "jellyfin"))
     profiles = list(db.scalars(select(Profile).order_by(Profile.name)))
+    sync_state = db.scalar(select(SyncState).where(SyncState.integration_kind == "jellyfin"))
     if jellyfin:
         status = f'''
         <div class="card">
@@ -55,6 +58,7 @@ def root(request: Request, db: Session = Depends(get_db)):
           <p><b>URL:</b> <code>{escape(jellyfin.base_url)}</code></p>
           <p><b>User:</b> {escape(jellyfin.username or "")}</p>
           <form method="post" action="{escape(ingress_url(request, 'jellyfin/test'))}"><button>Test connection</button></form>
+          <form method="post" action="{escape(ingress_url(request, 'jellyfin/sync-ui'))}"><button>Sync library &amp; Continue Watching</button></form>
           <form method="post" action="{escape(ingress_url(request, 'jellyfin/disconnect'))}"><button>Disconnect</button></form>
         </div>'''
     else:
@@ -73,11 +77,18 @@ def root(request: Request, db: Session = Depends(get_db)):
           </form>
         </div>'''
     plist = "".join(f"<li>{escape(p.name)}</li>" for p in profiles) or "<li>No Apollo profiles yet</li>"
+    if sync_state and sync_state.last_success_at:
+        sync_html = f"<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"ok\">Last sync succeeded.</p><p><b>Catalog:</b> {sync_state.catalog_items} items</p><p><b>Continue Watching:</b> {sync_state.continue_watching_items} items</p><p><b>Last sync:</b> {escape(str(sync_state.last_success_at))}</p></div>"
+    elif sync_state and sync_state.last_error:
+        sync_html = f"<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"bad\">Last sync failed.</p><p class=\"muted\">Last-known-good cache was preserved.</p><p>{escape(sync_state.last_error)}</p></div>"
+    else:
+        sync_html = "<div class=\"card\"><h2>Jellyfin Cache</h2><p class=\"muted\">Not synced yet.</p></div>" if jellyfin else ""
     return page(f'''
       <h1>Apollo Media Server</h1>
       <p class="ok">Server is running.</p>
-      <p>Version <code>0.1.3</code></p>
+      <p>Version <code>0.1.4</code></p>
       {status}
+      {sync_html}
       <div class="card"><h2>Profiles</h2><ul>{plist}</ul></div>
     ''')
 
@@ -137,3 +148,12 @@ def jellyfin_disconnect(request: Request, db: Session = Depends(get_db)):
         db.delete(row)
         db.commit()
     return RedirectResponse(url=ingress_url(request), status_code=303)
+
+
+@router.post("/jellyfin/sync-ui")
+async def jellyfin_sync_ui(request: Request, db: Session = Depends(get_db)):
+    try:
+        result = await sync_jellyfin(db)
+        return page(f'<h1>Jellyfin Sync</h1><p class="ok">Sync successful.</p><p>Catalog: {result["catalog_items"]} items</p><p>Continue Watching: {result["continue_watching_items"]} items</p><p><a href="{escape(ingress_url(request))}">Back</a></p>')
+    except Exception as exc:
+        return page(f'<h1>Jellyfin Sync</h1><p class="bad">Sync failed: {escape(str(exc))}</p><p class="muted">Apollo kept the last-known-good cache.</p><p><a href="{escape(ingress_url(request))}">Back</a></p>')

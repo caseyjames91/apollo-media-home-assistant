@@ -1,4 +1,4 @@
-# Install Apollo Media Server 0.1.3 on Home Assistant OS/Supervised
+# Install Apollo Media Server 0.1.4 on Home Assistant OS/Supervised
 
 This ZIP is a Home Assistant local add-on repository source, not a Kodi add-on.
 
