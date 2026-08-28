@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import httpx
 
 CLIENT_NAME = "Apollo Media Server"
-CLIENT_VERSION = "0.1.2"
+CLIENT_VERSION = "0.1.3"
 DEVICE_NAME = "Home Assistant Add-on"
 DEVICE_ID = "apollo-media-server"
 
