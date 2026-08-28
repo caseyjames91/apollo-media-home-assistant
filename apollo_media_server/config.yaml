@@ -1,0 +1,27 @@
+name: Apollo Media Server
+version: "0.1.2"
+slug: apollo_media_server
+description: Central profile, catalog, and device state service for Apollo Media.
+url: https://github.com/apollo-media/home-assistant-addons
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:television-play
+panel_title: Apollo Media
+homeassistant_api: true
+hassio_api: true
+map:
+  - addon_config:rw
+options:
+  log_level: info
+schema:
+  log_level: list(debug|info|warning|error)
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Apollo API (optional direct access)
