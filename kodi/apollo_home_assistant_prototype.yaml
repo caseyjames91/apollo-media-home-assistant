@@ -1,0 +1,643 @@
+# Apollo Media Home Assistant prototype
+# Each Kodi-facing script receives player_entity from the Apollo card configuration.
+
+script:
+  apollo_refresh_media_home:
+    alias: Apollo Refresh Media Home
+    mode: restart
+    fields:
+      player_entity:
+        required: true
+    sequence:
+      - repeat:
+          for_each:
+            - continue
+            - up_next
+            - trending_shows
+            - trending_movies
+            - popular_shows
+            - popular_movies
+            - recently_released_episodes
+            - recently_added_shows
+            - recently_released_movies
+            - recently_added_movies
+            - library_shows
+            - library_movies
+          sequence:
+            - action: kodi.call_method
+              target:
+                entity_id: "{{ player_entity }}"
+              data:
+                method: Files.GetDirectory
+                directory: >-
+                  plugin://plugin.video.apollomedia/?action=remote_media_list&list_type={{ repeat.item }}
+                media: video
+                properties:
+                  - title
+                  - year
+                  - thumbnail
+                  - fanart
+                  - plot
+                  - rating
+                  - runtime
+                  - resume
+                  - showtitle
+                  - season
+                  - episode
+                  - dateadded
+            - delay: "00:00:01"
+
+  apollo_refresh_library_movies:
+    alias: Apollo Refresh Library Movies
+    mode: restart
+    fields:
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=library_movies&offset=0&limit=60
+          media: video
+          properties:
+            - title
+            - year
+            - thumbnail
+            - fanart
+            - plot
+            - rating
+            - runtime
+            - resume
+            - dateadded
+
+  apollo_refresh_continue_watching:
+    alias: Apollo Refresh Continue Watching
+    mode: single
+    fields:
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=continue
+          media: video
+          properties:
+            - title
+            - year
+            - thumbnail
+            - fanart
+            - plot
+            - rating
+            - runtime
+            - resume
+            - showtitle
+            - season
+            - episode
+            - dateadded
+
+  apollo_remove_continue:
+    alias: Apollo Remove Continue Watching
+    mode: single
+    fields:
+      source:
+        required: true
+      item_id:
+        default: ""
+      imdb:
+        default: ""
+      season:
+        default: 0
+      episode:
+        default: 0
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: >-
+            plugin://plugin.video.apollomedia/?action=remote_remove_continue&source={{ source | urlencode }}&item_id={{ item_id | default('', true) | urlencode }}&imdb={{ imdb | default('', true) | urlencode }}&season={{ season | int }}&episode={{ episode | int }}
+          media: video
+          properties: []
+
+  apollo_refresh_active_playback:
+    alias: Apollo Refresh Active Playback
+    mode: single
+    fields:
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_browse_title:
+    alias: Apollo Browse Title
+    mode: restart
+    fields:
+      path:
+        required: true
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: "{{ path }}"
+          media: video
+          properties:
+            - title
+            - year
+            - thumbnail
+            - fanart
+            - plot
+            - runtime
+            - resume
+            - showtitle
+            - season
+            - episode
+            - dateadded
+
+  apollo_load_movies:
+    alias: Apollo Load Movies
+    mode: restart
+    fields:
+      list_type:
+        required: true
+      query:
+        default: ""
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: >-
+            plugin://plugin.video.apollomedia/?action=remote_catalog&list_type={{ list_type | urlencode }}&query={{ query | default('', true) | urlencode }}
+          media: video
+          properties:
+            - title
+            - year
+            - thumbnail
+            - fanart
+            - plot
+            - rating
+
+  apollo_load_streams:
+    alias: Apollo Load Streams
+    mode: restart
+    fields:
+      path:
+        required: true
+      player_entity:
+        required: true
+    sequence:
+      - condition: template
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=remote_stream_list') }}"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: "{{ path }}"
+          media: video
+          properties:
+            - title
+            - plot
+
+  apollo_play_stream:
+    alias: Apollo Play Selected Stream
+    mode: restart
+    fields:
+      path:
+        required: true
+      position:
+        default: 0
+      duration:
+        default: 0
+      player_entity:
+        required: true
+    sequence:
+      - condition: template
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=play_session_stream') }}"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Player.Open
+          item:
+            file: >-
+              {{ path ~ ('&' if '?' in path else '?')
+                 ~ 'start_position=' ~ (position | float)
+                 ~ '&start_duration=' ~ (duration | float)
+                 ~ '&resume_mode=live' }}
+      - delay: "00:00:01"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_switch_remote:
+    alias: Apollo Switch Playback Remote
+    mode: restart
+    fields:
+      path:
+        required: true
+      position:
+        default: 0
+      duration:
+        default: 0
+      player_entity:
+        required: true
+    sequence:
+      - condition: template
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=play_external') }}"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Player.Open
+          item:
+            file: >-
+              {{ path ~ ('&' if '?' in path else '?')
+                 ~ 'start_position=' ~ (position | float)
+                 ~ '&start_duration=' ~ (duration | float)
+                 ~ '&resume_mode=live' }}
+      - delay: "00:00:01"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_switch_local:
+    alias: Apollo Switch Playback Local
+    mode: restart
+    fields:
+      path:
+        required: true
+      position:
+        default: 0
+      duration:
+        default: 0
+      player_entity:
+        required: true
+    sequence:
+      - condition: template
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=remote_play_jellyfin') }}"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Player.Open
+          item:
+            file: >-
+              {{ path ~ ('&' if '?' in path else '?')
+                 ~ 'start_position=' ~ (position | float)
+                 ~ '&start_duration=' ~ (duration | float)
+                 ~ '&resume_mode=resume' }}
+          options:
+            resume: true
+      - delay: "00:00:01"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_play:
+    alias: Apollo Play
+    mode: single
+    fields:
+      path:
+        required: true
+      player_entity:
+        required: true
+      resume:
+        required: false
+    sequence:
+      - condition: template
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/') }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ resume is defined }}"
+            sequence:
+              - action: kodi.call_method
+                target:
+                  entity_id: "{{ player_entity }}"
+                data:
+                  method: Player.Open
+                  item:
+                    file: >-
+                      {{ path ~ (('&' if '?' in path else '?') ~ 'resume_mode=' ~ ('resume' if (resume | bool) else 'start_over')) }}
+                  options:
+                    resume: "{{ resume | bool }}"
+        default:
+          - action: kodi.call_method
+            target:
+              entity_id: "{{ player_entity }}"
+            data:
+              method: Player.Open
+              item:
+                file: "{{ path }}"
+
+  apollo_try_next:
+    alias: Apollo Try Next Stream
+    mode: restart
+    fields:
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Addons.ExecuteAddon
+          addonid: plugin.video.apollomedia
+          params: "?action=try_next"
+      - delay: "00:00:01"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_flag_stream:
+    alias: Apollo Flag Current Stream
+    mode: restart
+    fields:
+      reason:
+        required: true
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Addons.ExecuteAddon
+          addonid: plugin.video.apollomedia
+          params: "?action=flag_current&reason={{ reason | urlencode }}"
+      - delay: "00:00:01"
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Files.GetDirectory
+          directory: plugin://plugin.video.apollomedia/?action=remote_media_list&list_type=active
+          media: video
+          properties: [title, year, thumbnail, fanart, plot, showtitle, season, episode]
+
+  apollo_show_on_tv:
+    alias: Apollo Show on TV
+    mode: restart
+    fields:
+      path:
+        required: true
+      player_entity:
+        required: true
+    sequence:
+      - action: kodi.call_method
+        target:
+          entity_id: "{{ player_entity }}"
+        data:
+          method: Addons.ExecuteAddon
+          addonid: plugin.video.apollomedia
+          params: "?action=show_on_tv&path={{ path | urlencode }}"
+
+template:
+  - triggers:
+      - trigger: event
+        event_type: kodi_call_method_result
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set input = trigger.event.data.get('input', {}) %}
+          {% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.get('result_ok', true) and input.get('method', '') == 'Files.GetDirectory' and 'list_type=active' in d }}
+    sensor:
+      - name: Apollo Active Playback
+        unique_id: apollo_active_playback
+        state: "{{ trigger.event.data.result.get('files', []) | count }}"
+        attributes:
+          movies: "{{ trigger.event.data.result.get('files', []) }}"
+
+  - triggers:
+      - trigger: event
+        event_type: kodi_call_method_result
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set event = trigger.event.data %}
+          {% set input = event.get('input', {}) %}
+          {% set directory = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ event.get('result_ok', true) and input.get('method', '') == 'Files.GetDirectory'
+             and directory.startswith('plugin://plugin.video.apollomedia/')
+             and ('action=seasons' in directory or 'action=episodes' in directory
+                  or 'action=discovery_seasons' in directory or 'action=discovery_episodes' in directory) }}
+    sensor:
+      - name: Apollo Browser Items
+        unique_id: apollo_browser_items
+        state: "{{ trigger.event.data.result.get('files', []) | count }}"
+        attributes:
+          movies: "{{ trigger.event.data.result.get('files', []) }}"
+          directory: >-
+            {% set input = trigger.event.data.get('input', {}) %}
+            {{ input.get('params', {}).get('directory', input.get('directory', '')) }}
+
+  - triggers:
+      - trigger: event
+        event_type: kodi_call_method_result
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set event = trigger.event.data %}
+          {% set input = event.get('input', {}) %}
+          {% set directory = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ event.get('result_ok', true) and input.get('method', '') == 'Files.GetDirectory'
+             and directory.startswith('plugin://plugin.video.apollomedia/?action=remote_media_list') }}
+    sensor:
+      - name: Apollo Continue Watching
+        unique_id: apollo_continue_watching
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}
+          {% set directory = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=continue' in directory else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}
+            {% set directory = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=continue' in directory else this.attributes.get('movies', []) }}
+      - name: Apollo Up Next
+        unique_id: apollo_up_next
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=up_next' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=up_next' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Recently Released Episodes
+        unique_id: apollo_recently_released_episodes
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=recently_released_episodes' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=recently_released_episodes' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Recently Added Shows
+        unique_id: apollo_recently_added_shows
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=recently_added_shows' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=recently_added_shows' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Recently Released Movies
+        unique_id: apollo_recently_released_movies
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=recently_released_movies' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=recently_released_movies' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Recently Added Movies
+        unique_id: apollo_recently_added_movies
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=recently_added_movies' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=recently_added_movies' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Library Movies
+        unique_id: apollo_library_movies
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=library_movies&offset=0&limit=60' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=library_movies&offset=0&limit=60' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Library Shows
+        unique_id: apollo_library_shows
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=library_shows&offset=0&limit=60' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=library_shows&offset=0&limit=60' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Popular Movies
+        unique_id: apollo_popular_movies
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=popular_movies' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=popular_movies' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Trending Movies
+        unique_id: apollo_trending_movies
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=trending_movies' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=trending_movies' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Popular Shows
+        unique_id: apollo_popular_shows
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=popular_shows' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=popular_shows' in d else this.attributes.get('movies', []) }}
+      - name: Apollo Trending Shows
+        unique_id: apollo_trending_shows
+        state: >-
+          {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+          {{ trigger.event.data.result.get('files', []) | count if 'list_type=trending_shows' in d else this.state }}
+        attributes:
+          movies: >-
+            {% set input = trigger.event.data.get('input', {}) %}{% set d = input.get('params', {}).get('directory', input.get('directory', '')) %}
+            {{ trigger.event.data.result.get('files', []) if 'list_type=trending_shows' in d else this.attributes.get('movies', []) }}
+
+  - triggers:
+      - trigger: event
+        event_type: kodi_call_method_result
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set event = trigger.event.data %}
+          {% set input = event.get('input', {}) %}
+          {% set params = input.get('params', {}) %}
+          {% set directory = params.get('directory', input.get('directory', '')) %}
+          {{ event.get('result_ok', true) and input.get('method', '') == 'Files.GetDirectory'
+             and directory.startswith('plugin://plugin.video.apollomedia/?action=remote_catalog') }}
+    sensor:
+      - name: Apollo Movie Catalog
+        unique_id: apollo_movie_catalog
+        state: "{{ trigger.event.data.result.get('files', []) | count }}"
+        attributes:
+          movies: "{{ trigger.event.data.result.get('files', []) }}"
+          directory: >-
+            {% set input = trigger.event.data.get('input', {}) %}
+            {{ input.get('params', {}).get('directory', input.get('directory', '')) }}
+
+  - triggers:
+      - trigger: event
+        event_type: kodi_call_method_result
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set event = trigger.event.data %}
+          {% set input = event.get('input', {}) %}
+          {% set params = input.get('params', {}) %}
+          {% set directory = params.get('directory', input.get('directory', '')) %}
+          {{ event.get('result_ok', true) and input.get('method', '') == 'Files.GetDirectory'
+             and directory.startswith('plugin://plugin.video.apollomedia/?action=remote_stream_list') }}
+    sensor:
+      - name: Apollo Streams
+        unique_id: apollo_streams
+        state: "{{ trigger.event.data.result.get('files', []) | count }}"
+        attributes:
+          sources: "{{ trigger.event.data.result.get('files', []) }}"
+          directory: >-
+            {% set input = trigger.event.data.get('input', {}) %}
+            {{ input.get('params', {}).get('directory', input.get('directory', '')) }}

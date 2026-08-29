@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addons>
+<addon id="plugin.video.apollomedia" name="Apollo Media" version="0.9.84" provider-name="Apollo Media">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="main.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py" start="login"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">A unified, local-first Kodi media browser</summary>
+    <description lang="en_GB">Apollo presents movie and TV discovery with Jellyfin as one Kodi-native library. Local Jellyfin copies are preferred automatically and retain Jellyfin resume and watched state.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+  </extension>
+</addon>
+<addon id="repository.apollomedia" name="Apollo Media Repository" version="1.0.0" provider-name="Apollo Media">
+  <extension point="xbmc.addon.repository" name="Apollo Media Repository">
+    <dir minversion="20.0.0">
+      <info compressed="false">https://raw.githubusercontent.com/caseyjames91/apollo-media-home-assistant/main/kodi-repository/addons.xml</info>
+      <checksum>https://raw.githubusercontent.com/caseyjames91/apollo-media-home-assistant/main/kodi-repository/addons.xml.md5</checksum>
+      <datadir zip="true">https://raw.githubusercontent.com/caseyjames91/apollo-media-home-assistant/main/kodi-repository/</datadir>
+      <hashes>sha256</hashes>
+    </dir>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Updates for Apollo Media</summary>
+    <description lang="en_GB">Installs and updates the Apollo Media Kodi add-on from the Apollo Media GitHub repository.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+  </extension>
+</addon>
+</addons>
