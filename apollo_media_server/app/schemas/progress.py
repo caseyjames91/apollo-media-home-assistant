@@ -8,9 +8,10 @@ class ProgressUpsert(BaseModel):
     media_type: str
     canonical_id: str
     title: str
+    series_title: str | None = None
     imdb_id: str | None = None
     tmdb_id: str | None = None
-    jellyfin_item_id: str | None = None
+    tvdb_id: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
@@ -22,9 +23,10 @@ class ProgressImportItem(BaseModel):
     media_type: str
     canonical_id: str
     title: str
+    series_title: str | None = None
     imdb_id: str | None = None
     tmdb_id: str | None = None
-    jellyfin_item_id: str | None = None
+    tvdb_id: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
@@ -45,11 +47,12 @@ class ContinueWatchingItem(BaseModel):
     series_title: str | None = None
     imdb_id: str | None = None
     tmdb_id: str | None = None
-    jellyfin_item_id: str | None = None
-    artwork_jellyfin_item_id: str | None = None
+    tvdb_id: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
     duration_seconds: float
     progress_fraction: float
+    available_locally: bool = False
+    local_playback_path: str | None = None
     updated_at: datetime
