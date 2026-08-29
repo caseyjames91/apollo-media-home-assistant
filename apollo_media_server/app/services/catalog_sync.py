@@ -135,9 +135,18 @@ async def sync_jellyfin(db: Session) -> dict:
                 progress = Progress(profile_id=profile.id, media_id=media.id)
                 db.add(progress)
 
-            progress.position_seconds = position
-            progress.duration_seconds = duration
-            progress.updated_at = parse_jellyfin_datetime(user_data.get("LastPlayedDate"))
+            jellyfin_updated = parse_jellyfin_datetime(user_data.get("LastPlayedDate"))
+            existing_updated = progress.updated_at
+            if existing_updated is not None and existing_updated.tzinfo is None:
+                existing_updated = existing_updated.replace(tzinfo=timezone.utc)
+            if jellyfin_updated.tzinfo is None:
+                jellyfin_updated = jellyfin_updated.replace(tzinfo=timezone.utc)
+            # AMS is the profile authority. A stale Jellyfin snapshot must never
+            # overwrite newer remote/Kodi progress already reported to AMS.
+            if existing_updated is None or jellyfin_updated >= existing_updated:
+                progress.position_seconds = position
+                progress.duration_seconds = duration
+                progress.updated_at = jellyfin_updated
             resume_count += 1
 
         state.last_success_at = datetime.now(timezone.utc)

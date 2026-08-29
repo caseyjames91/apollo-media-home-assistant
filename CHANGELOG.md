@@ -32,3 +32,9 @@
 
 ## 0.1.2
 - Add Jellyfin connection setup, token persistence, connection testing, disconnect, and profile mapping.
+
+## 0.1.9
+- AMS Continue Watching is now the canonical merged profile timeline for Jellyfin and Kodi-reported remote progress.
+- Added timestamp-preserving batch progress import so multiple Kodi clients can merge historical progress without stale devices winning.
+- Jellyfin sync no longer overwrites newer AMS progress.
+- Exposes the AMS API on port 8099 for Kodi clients; Home Assistant ingress remains the browser/card path.

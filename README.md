@@ -15,3 +15,6 @@ After uploading a future `Apollo-HA-Addon-X.Y.Z-update.zip` to the repository ro
 ```
 
 The helper validates the tree/archive, applies the update, stages it, verifies the diff, commits the version, and pushes `main`.
+
+### Kodi client connection
+AMS 0.1.9 exposes its direct API on TCP 8099 so Kodi addons can report and consume profile state without routing through Home Assistant ingress. Browser/card clients continue to use authenticated HA ingress. Direct API authentication is a pre-public-release hardening item.

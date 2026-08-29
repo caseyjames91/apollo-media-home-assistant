@@ -14,3 +14,6 @@ Database/API timestamps remain UTC. User-facing Web UI timestamps are rendered i
 ## Jellyfin
 
 Connect Jellyfin from the add-on Web UI, then use **Sync library & Continue Watching**. Apollo caches Movies/Shows and profile resume state in SQLite and preserves last-known-good data when a remote sync fails.
+
+## Kodi clients (0.1.9+)
+Kodi clients use the direct AMS API on port 8099 for profile progress and Continue Watching. The Kodi addon defaults to `http://homeassistant.local:8099`; change the AMS URL in Kodi settings when the Home Assistant host is reached by another hostname/IP.
