@@ -33,5 +33,16 @@ class CardRefreshFeedbackTests(unittest.TestCase):
         self.assertIn(".refresh-action.refresh-success", self.source)
         self.assertIn("color: #4ade80", self.source)
 
+    def test_ams_unchanged_refresh_is_still_successful(self):
+        self.assertIn("return { success: true, changed };", self.source)
+        self.assertIn("if (!result?.success) throw new Error(\"AMS refresh failed\");", self.source)
+        self.assertNotIn("if (!ok) throw new Error(\"AMS refresh failed\");", self.source)
+
+    def test_ams_busy_refresh_is_successfully_queued(self):
+        self.assertIn(
+            "return { success: true, changed: false, queued: true };",
+            self.source
+        )
+
 if __name__ == "__main__":
     unittest.main()

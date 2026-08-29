@@ -627,7 +627,7 @@ class ApolloMediaCard extends HTMLElement {
     if (this.config?.ams_enabled === false) return false;
     if (this._amsContinueLoading) {
       this._amsContinueQueued = this._amsContinueQueued || sync;
-      return false;
+      return { success: true, changed: false, queued: true };
     }
     this._amsContinueLoading = true;
     try {
@@ -653,14 +653,14 @@ class ApolloMediaCard extends HTMLElement {
       if (continueRow) continueRow.items = [...this._amsContinueItems];
       this._continueRefreshErrorLogged = false;
       if (changed && this._rendered) this.replaceContinueWatchingRail();
-      return changed;
+      return { success: true, changed };
     } catch (error) {
       // Keep the legacy HA feed as a safe fallback until AMS is reachable.
       if (!this._amsContinueReady && !this._amsContinueErrorLogged) {
         console.warn("Apollo AMS Continue Watching unavailable; using Home Assistant fallback", error);
         this._amsContinueErrorLogged = true;
       }
-      return false;
+      return { success: false, changed: false, error };
     } finally {
       this._amsContinueLoading = false;
       if (this._amsContinueQueued) {
@@ -910,9 +910,9 @@ class ApolloMediaCard extends HTMLElement {
       this._refreshSuccessUntil = 0;
       this.updateRefreshControl();
       Promise.resolve(this.loadAmsContinueWatching({ sync: true }))
-        .then(ok => {
+        .then(result => {
           this._refreshRequested = false;
-          if (!ok) throw new Error("AMS refresh failed");
+          if (!result?.success) throw new Error("AMS refresh failed");
           this._refreshSuccessUntil = Date.now() + 2800;
           if (this._refreshSuccessTimer) window.clearTimeout(this._refreshSuccessTimer);
           this._refreshSuccessTimer = window.setTimeout(() => {
