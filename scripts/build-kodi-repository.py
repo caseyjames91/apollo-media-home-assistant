@@ -20,3 +20,19 @@ ET.fromstring(addons)
 (REPO/'addons.xml').write_text(addons,encoding='utf-8')
 (REPO/'addons.xml.md5').write_text(hashlib.md5(addons.encode()).hexdigest(),encoding='ascii')
 print(f'PASS: built Kodi repository for Apollo Media {version}')
+
+# Kodi 21 requires a SHA-256 sidecar when a package hash cannot be
+# obtained from the HTTP response. Generate one for every repository ZIP.
+def write_sha256_sidecars(repository_root):
+    import hashlib
+    from pathlib import Path
+
+    root = Path(repository_root)
+    for zip_path in root.rglob("*.zip"):
+        digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+        sidecar = zip_path.with_name(zip_path.name + ".sha256")
+        sidecar.write_text(digest + "\n", encoding="utf-8")
+        print(f"SHA256: {sidecar}")
+
+if __name__ == "__main__":
+    write_sha256_sidecars("kodi-repository")
