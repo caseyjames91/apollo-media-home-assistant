@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+- Make Radarr the local-availability authority for movies and Sonarr the local-availability authority for shows and episodes.
+- Add saved Radarr/Sonarr integration configuration and connection-test API endpoints without exposing stored API keys in reads.
+- Add `/local-availability/sync` to reconcile Apollo media against Arr libraries, including marking previously-known items unavailable when files disappear.
+- Match Radarr movies by TMDB/IMDb identity and Sonarr series by TVDB/IMDb identity, then resolve Sonarr episodes by season/episode number.
+- Decouple `available_locally` from Kodi path translation. Arr can now truthfully mark an item local even while Apollo's final Kodi local-playback transport is still unset.
+- Preserve legacy path-mapping/manual-local endpoints for development compatibility; no fake SMB mapping is required for Arr-backed availability.
+
+
 ## 0.2.1
 - Add an idempotent SQLite startup migration so databases created by AMS 0.1.x are upgraded in place for the Apollo-owned 0.2 schema instead of failing on missing ORM columns.
 - Migrate legacy profile fields required by 0.2 (`profile_type`, `avatar`, `pin_required`, `created_at`) and backfill existing profile timestamps.
