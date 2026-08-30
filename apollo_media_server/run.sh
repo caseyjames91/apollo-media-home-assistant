@@ -28,9 +28,6 @@ install_custom_ca() {
 
 install_custom_ca
 
-# httpx/httpcore use Python's SSL defaults, which can resolve to certifi's
-# bundled CA file instead of Alpine's updated system trust bundle. Point
-# Python HTTPS clients at the system bundle so the custom Apollo CA is used.
 export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 export REQUESTS_CA_BUNDLE="${SSL_CERT_FILE}"
 

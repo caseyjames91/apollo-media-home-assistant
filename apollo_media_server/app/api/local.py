@@ -50,10 +50,24 @@ def _available_sources(db: Session, media_id: uuid.UUID) -> list[LocalAvailabili
     )
 
 
-@router.post("/path-mappings", response_model=PathMappingRead, status_code=201)
-def create_mapping(payload: PathMappingCreate, db: Session = Depends(get_db)):
-    row = PathMapping(**payload.model_dump())
-    db.add(row)
+@router.post("/path-mappings", response_model=PathMappingRead)
+def upsert_mapping(payload: PathMappingCreate, db: Session = Depends(get_db)):
+    # A device can have only one mapping for a given source prefix. Re-posting
+    # the same device/source pair updates the existing mapping instead of
+    # surfacing the database uniqueness constraint as a 500.
+    row = db.scalar(
+        select(PathMapping).where(
+            PathMapping.device_key == payload.device_key,
+            PathMapping.source_prefix == payload.source_prefix,
+        )
+    )
+    if row is None:
+        row = PathMapping(**payload.model_dump())
+        db.add(row)
+    else:
+        row.name = payload.name
+        row.kodi_prefix = payload.kodi_prefix
+
     db.commit()
     db.refresh(row)
     return row
@@ -62,6 +76,16 @@ def create_mapping(payload: PathMappingCreate, db: Session = Depends(get_db)):
 @router.get("/path-mappings", response_model=list[PathMappingRead])
 def list_mappings(db: Session = Depends(get_db)):
     return list(db.scalars(select(PathMapping).order_by(PathMapping.name)))
+
+
+@router.delete("/path-mappings/{mapping_id}", status_code=204)
+def delete_mapping(mapping_id: uuid.UUID, db: Session = Depends(get_db)):
+    row = db.get(PathMapping, mapping_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Path mapping not found")
+    db.delete(row)
+    db.commit()
+    return None
 
 
 @router.get("/path-mappings/resolve")
