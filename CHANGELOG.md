@@ -1,12 +1,16 @@
 # Changelog
 
+## 0.2.4
+- Point Python HTTPS clients at Alpine's updated system CA bundle via `SSL_CERT_FILE` so httpx uses the custom Apollo CA installed by the add-on.
+- Export `REQUESTS_CA_BUNDLE` to the same trusted bundle for compatibility with other Python HTTP clients.
+- Log the active TLS trust-bundle path at startup.
+
 ## 0.2.3
 - Mount Home Assistant's `/ssl` directory read-only into the Apollo Media Server add-on.
 - Install `/ssl/Apollo+CA.crt` into the add-on container trust store at startup when present.
 - Keep normal TLS certificate verification enabled for internal HTTPS services such as Radarr and Sonarr.
 - Add the Alpine `ca-certificates` package explicitly so custom CA trust installation is deterministic.
 - Log whether the custom Apollo CA was installed or the system trust store is being used.
-
 
 ## 0.2.2
 - Make Radarr the local-availability authority for movies and Sonarr the local-availability authority for shows and episodes.
