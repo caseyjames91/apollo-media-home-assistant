@@ -106,6 +106,12 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"><heading>32204</heading></control>
         </setting>
+        <setting id="ams_device_key" type="string" label="32209" help="32210">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"><heading>32209</heading></control>
+        </setting>
       </group>
     </category>
   </section>

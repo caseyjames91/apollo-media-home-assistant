@@ -2983,7 +2983,68 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
         title = title or details.get("Name") or ""
         position, duration = canonical_local_resume(imdb_id, media_type, season, episode, title, item_id)
         if resume_mode == "start_over": position = 0
+
+        ams_decision = ams.resolve_playback_for_identity(
+            ADDON, imdb_id, media_type, season, episode
+        )
+        if ams_decision:
+            mode = str(ams_decision.get("mode") or "")
+            if mode == "remote":
+                xbmc.log(
+                    f"[Apollo Media] AMS selected remote playback for {imdb_id} "
+                    f"S{season:02d}E{episode:02d}: {ams_decision.get('reason') or 'fallback_required'}",
+                    xbmc.LOGINFO,
+                )
+                return resolved_playback_item(
+                    "remote", "", imdb_id, media_type, season, episode, title,
+                    item_id, resume_mode
+                )
+
+            playback_path = str(ams_decision.get("playback_path") or "").strip()
+            if mode == "local" and playback_path:
+                xbmc.log(
+                    f"[Apollo Media] AMS local playback via {ams_decision.get('provider') or 'local'}: "
+                    f"{playback_path}",
+                    xbmc.LOGINFO,
+                )
+                item = external_item(
+                    playback_path, title, imdb_id, media_type, season, episode,
+                    position, duration
+                )
+                if resume_mode == "start_over":
+                    item.setProperty("StartOffset", "0")
+                tag = item.getVideoInfoTag()
+                tag.setUniqueID(item_id, "jellyfin")
+                if item_type == "Episode" and details.get("SeriesName"):
+                    tag.setTvShowTitle(details.get("SeriesName"))
+                active_media.save({
+                    "source": "local",
+                    "transport": "ams",
+                    "provider": str(ams_decision.get("provider") or ""),
+                    "jellyfin_item_id": str(item_id),
+                    "imdb_id": str(imdb_id),
+                    "media_type": media_type,
+                    "season": season,
+                    "episode": episode,
+                    "title": title,
+                    "show_title": details.get("SeriesName") or "",
+                })
+                playback_session.save(
+                    "ams_local", imdb_id, media_type, season, episode, title,
+                    jellyfin_item_id=item_id,
+                    requested_start_position=position,
+                    requested_duration=duration,
+                    resume_mode=resume_mode or "native",
+                )
+                return item
+
+            raise RuntimeError(
+                f"AMS returned an invalid playback decision for {imdb_id}: {ams_decision}"
+            )
+
         item = external_item(jf.stream_url(item_id), title, imdb_id, media_type, season, episode, position, duration)
+        if resume_mode == "start_over":
+            item.setProperty("StartOffset", "0")
         tag=item.getVideoInfoTag(); tag.setUniqueID(item_id,"jellyfin")
         if item_type=="Episode" and details.get("SeriesName"): tag.setTvShowTitle(details.get("SeriesName"))
         active_media.save({"source":"local","jellyfin_item_id":str(item_id),"imdb_id":str(imdb_id),
@@ -3030,78 +3091,13 @@ def play_resolved(source, item_id="", imdb_id="", media_type="movie", season=0,
 
 
 def play_jellyfin(item_id, title, start_over=False):
-    jf = require_jellyfin()
-    if not jf or not item_id:
-        xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
-        return
-    try:
-        details = jf.item(item_id)
-        item_type = details.get("Type") or "Movie"
-        season = int(details.get("ParentIndexNumber") or 0)
-        episode = int(details.get("IndexNumber") or 0)
-        media_type = "series" if item_type == "Episode" else "movie"
-
-        provider_ids = details.get("ProviderIds") or {}
-        imdb_id = provider_ids.get("Imdb") or provider_ids.get("IMDb") or ""
-        if item_type == "Episode" and details.get("SeriesId"):
-            try:
-                series = jf.item(details.get("SeriesId")) or {}
-                series_ids = series.get("ProviderIds") or {}
-                imdb_id = (
-                    series_ids.get("Imdb")
-                    or series_ids.get("IMDb")
-                    or imdb_id
-                )
-            except Exception:
-                pass
-
-        display_title = title or details.get("Name") or ""
-        position, duration = canonical_local_resume(
-            imdb_id, media_type, season, episode, display_title, item_id
-        )
-
-        item = xbmcgui.ListItem(
-            label=display_title,
-            path=jf.stream_url(item_id),
-        )
-        tag = item.getVideoInfoTag()
-        tag.setTitle(literal_label(display_title))
-        tag.setUniqueID(item_id, "jellyfin")
-        if imdb_id:
-            tag.setUniqueID(imdb_id, "imdb")
-        if item_type == "Episode":
-            tag.setSeason(season)
-            tag.setEpisode(episode)
-        active_media.save({
-            "source": "local", "jellyfin_item_id": str(item_id),
-            "imdb_id": str(imdb_id), "media_type": media_type,
-            "season": season, "episode": episode, "title": display_title,
-            "show_title": details.get("SeriesName") or "",
-        })
-        playback_session.save(
-            "jellyfin", imdb_id, media_type, season, episode, display_title,
-            jellyfin_item_id=item_id,
-            requested_start_position=0 if start_over else position,
-            requested_duration=duration,
-            resume_mode="start_over" if start_over else "native",
-        )
-        if not start_over and position > 0 and duration > 0:
-            tag.setResumePoint(position, duration)
-
-        if start_over:
-            # Player.Open's resume=false applies to the outer plugin request,
-            # but Kodi resolves that request to this new ListItem. Make the
-            # card's local Start Over decision explicit on the resolved item.
-            item.setProperty("StartOffset", "0")
-
-        # Keep the resume point visible to Kodi, but do not set StartOffset for
-        # local library playback. Kodi must retain its native Resume / Start
-        # from beginning choice for Jellyfin-backed items.
-        item.setProperty("IsPlayable", "true")
-        xbmcplugin.setResolvedUrl(HANDLE, True, item)
-    except Exception as exc:
-        notify(f"Playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
-        xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+    """Resolve normal local clicks through Apollo's unified playback path."""
+    play_resolved(
+        "jellyfin",
+        item_id=item_id,
+        title=title,
+        resume_mode="start_over" if start_over else "",
+    )
 
 
 def remote_play_jellyfin(item_id, title="", resume_mode="", start_position=None, start_duration=None):

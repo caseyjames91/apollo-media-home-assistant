@@ -234,3 +234,11 @@ msgstr ""
 msgctxt "#32208"
 msgid "Optional exact AMS profile UUID. Advanced use only."
 msgstr ""
+
+msgctxt "#32209"
+msgid "AMS device key"
+msgstr ""
+
+msgctxt "#32210"
+msgid "Device key registered in Apollo Media Server. Apollo uses it to resolve Arr container paths into paths this Kodi instance can play."
+msgstr ""
