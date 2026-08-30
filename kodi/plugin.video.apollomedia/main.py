@@ -1961,12 +1961,18 @@ def discovery_seasons(imdb_id, title, native_local=False):
 
         local_season_numbers = set()
         if jf.ready:
-            local_series = jf.find_series(imdb_id)
-            if local_series:
-                for local_season in jf.seasons(local_series.get("Id") or ""):
-                    local_season_numbers.add(
-                        int(local_season.get("IndexNumber") or 0)
-                    )
+            try:
+                local_series = jf.find_series(imdb_id)
+                if local_series:
+                    for local_season in jf.seasons(local_series.get("Id") or ""):
+                        local_season_numbers.add(
+                            int(local_season.get("IndexNumber") or 0)
+                        )
+            except Exception as exc:
+                xbmc.log(
+                    f"[Apollo Media] Optional Jellyfin season enrichment failed: {exc}",
+                    xbmc.LOGWARNING,
+                )
 
         for season_number in seasons:
             add_discovery_season(
@@ -1993,14 +1999,20 @@ def discovery_episodes(imdb_id, season_number, native_local=False):
 
         local_by_number = {}
         if jf.ready:
-            local_series = jf.find_series(imdb_id)
-            if local_series:
-                for episode in jf.episodes(local_series.get("Id")):
-                    key = (
-                        int(episode.get("ParentIndexNumber") or 0),
-                        int(episode.get("IndexNumber") or 0),
-                    )
-                    local_by_number[key] = episode
+            try:
+                local_series = jf.find_series(imdb_id)
+                if local_series:
+                    for episode in jf.episodes(local_series.get("Id")):
+                        key = (
+                            int(episode.get("ParentIndexNumber") or 0),
+                            int(episode.get("IndexNumber") or 0),
+                        )
+                        local_by_number[key] = episode
+            except Exception as exc:
+                xbmc.log(
+                    f"[Apollo Media] Optional Jellyfin episode enrichment failed: {exc}",
+                    xbmc.LOGWARNING,
+                )
 
         for episode in discovered:
             key = (
