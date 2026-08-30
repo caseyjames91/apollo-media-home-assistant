@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+- Mount Home Assistant's `/ssl` directory read-only into the Apollo Media Server add-on.
+- Install `/ssl/Apollo+CA.crt` into the add-on container trust store at startup when present.
+- Keep normal TLS certificate verification enabled for internal HTTPS services such as Radarr and Sonarr.
+- Add the Alpine `ca-certificates` package explicitly so custom CA trust installation is deterministic.
+- Log whether the custom Apollo CA was installed or the system trust store is being used.
+
+
 ## 0.2.2
 - Make Radarr the local-availability authority for movies and Sonarr the local-availability authority for shows and episodes.
 - Add saved Radarr/Sonarr integration configuration and connection-test API endpoints without exposing stored API keys in reads.
@@ -7,7 +15,6 @@
 - Match Radarr movies by TMDB/IMDb identity and Sonarr series by TVDB/IMDb identity, then resolve Sonarr episodes by season/episode number.
 - Decouple `available_locally` from Kodi path translation. Arr can now truthfully mark an item local even while Apollo's final Kodi local-playback transport is still unset.
 - Preserve legacy path-mapping/manual-local endpoints for development compatibility; no fake SMB mapping is required for Arr-backed availability.
-
 
 ## 0.2.1
 - Add an idempotent SQLite startup migration so databases created by AMS 0.1.x are upgraded in place for the Apollo-owned 0.2 schema instead of failing on missing ORM columns.

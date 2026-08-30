@@ -5,7 +5,7 @@ ARG BUILD_VERSION
 
 ENV APOLLO_VERSION=${BUILD_VERSION}
 
-RUN apk add --no-cache py3-pip
+RUN apk add --no-cache py3-pip ca-certificates
 WORKDIR /opt/apollo
 
 COPY requirements.txt .

@@ -5,6 +5,29 @@ LOG_LEVEL="$(bashio::config 'log_level')"
 export APOLLO_DATABASE_URL="sqlite:////config/apollo.db"
 export APOLLO_LOG_LEVEL="${LOG_LEVEL}"
 
+install_custom_ca() {
+    local source_ca="/ssl/Apollo+CA.crt"
+    local target_ca="/usr/local/share/ca-certificates/apollo-home-ca.crt"
+
+    if [ ! -f "${source_ca}" ]; then
+        bashio::log.info "Custom Apollo CA not found at ${source_ca}; using system trust store"
+        return
+    fi
+
+    bashio::log.info "Installing custom Apollo CA from ${source_ca}"
+    cp "${source_ca}" "${target_ca}"
+
+    if ! update-ca-certificates >/tmp/apollo-update-ca.log 2>&1; then
+        cat /tmp/apollo-update-ca.log >&2 || true
+        bashio::log.fatal "Failed to update container CA trust store"
+        exit 1
+    fi
+
+    bashio::log.info "Custom Apollo CA installed"
+}
+
+install_custom_ca
+
 bashio::log.info "Starting Apollo Media Server ${APOLLO_VERSION:-dev}"
 bashio::log.info "Database: persistent add-on config storage"
 
