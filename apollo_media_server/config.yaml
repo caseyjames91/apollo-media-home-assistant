@@ -1,5 +1,5 @@
 name: Apollo Media Server
-version: "0.2.0"
+version: "0.2.1"
 slug: apollo_media_server
 description: Apollo-owned profiles, media state, local availability, progress, and playback sessions.
 url: https://github.com/caseyjames91/apollo-media-home-assistant

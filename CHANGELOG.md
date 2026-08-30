@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+- Add an idempotent SQLite startup migration so databases created by AMS 0.1.x are upgraded in place for the Apollo-owned 0.2 schema instead of failing on missing ORM columns.
+- Migrate legacy profile fields required by 0.2 (`profile_type`, `avatar`, `pin_required`, `created_at`) and backfill existing profile timestamps.
+- Migrate 0.2 media metadata fields (`tvdb_id`, `series_title`, `year`, `overview`, `poster_url`, `backdrop_url`) and provider-ID indexes.
+- Migrate progress watched-state fields (`watched`, `watched_at`) and the integration `name` field while preserving legacy columns and existing data.
+- Align the development/default database URL with the add-on runtime database at `/config/apollo.db`.
+
 ## 0.1.8
 - Fix AMS runtime version resolving to `dev` inside the container.
 - Re-declare Home Assistant `BUILD_VERSION` inside the Docker build stage before exporting `APOLLO_VERSION`.
