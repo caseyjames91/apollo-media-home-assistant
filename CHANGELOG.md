@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.5
+- Keep Radarr/Sonarr narrowly scoped to local availability and filesystem source location; they do not enrich Apollo titles, artwork, overviews, or other catalog metadata.
+- Remove Sonarr title/year fallback matching. Sonarr series now match Apollo records only by TVDB, TMDB, or IMDb identity.
+- Continue resolving Sonarr episodes by season/episode number only after a strict series-ID match.
+- Expose Arr reconciliation details on media responses through `local_sources`, including provider, provider item ID, availability, source path, quality, and update time.
+- Return Arr filesystem source paths only while the corresponding file is available; clear stale source paths and quality when a provider match disappears.
+- Preserve `local_playback_path` as a separate Kodi-routing field rather than treating an Arr filesystem path as directly playable.
+
+
 ## 0.2.4
 - Point Python HTTPS clients at Alpine's updated system CA bundle via `SSL_CERT_FILE` so httpx uses the custom Apollo CA installed by the add-on.
 - Export `REQUESTS_CA_BUNDLE` to the same trusted bundle for compatibility with other Python HTTP clients.

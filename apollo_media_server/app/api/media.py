@@ -13,17 +13,35 @@ from app.schemas.media import MediaCreate
 router = APIRouter(prefix="/media", tags=["media"])
 
 
-def _local(db, media_id):
-    return db.scalar(
-        select(LocalAvailability).where(
-            LocalAvailability.media_id == media_id,
-            LocalAvailability.available.is_(True),
+def _locals(db, media_id):
+    return list(
+        db.scalars(
+            select(LocalAvailability)
+            .where(LocalAvailability.media_id == media_id)
+            .order_by(LocalAvailability.provider, LocalAvailability.provider_item_id)
         )
     )
 
 
+def _local_source_dto(row: LocalAvailability) -> dict:
+    return {
+        "provider": row.provider,
+        "provider_item_id": row.provider_item_id,
+        "available": row.available,
+        # A path is authoritative only while Arr says the file is present.
+        "source_path": (row.source_path or None) if row.available else None,
+        "quality": row.quality if row.available else None,
+        "updated_at": row.updated_at,
+    }
+
+
 def _dto(db, row):
-    local = _local(db, row.id)
+    local_sources = _locals(db, row.id)
+    available_sources = [source for source in local_sources if source.available]
+    playback_source = next(
+        (source for source in available_sources if source.kodi_path),
+        None,
+    )
     return {
         "id": row.id,
         "media_type": row.media_type,
@@ -39,10 +57,15 @@ def _dto(db, row):
         "overview": row.overview,
         "poster_url": row.poster_url,
         "backdrop_url": row.backdrop_url,
-        "available_locally": bool(local),
-        # Availability comes from Radarr/Sonarr. Kodi routing is a separate
-        # concern and can remain unset until the playback transport is chosen.
-        "local_playback_path": (local.kodi_path or None) if local else None,
+        "available_locally": bool(available_sources),
+        # Arr owns availability + filesystem source location. Kodi routing is
+        # separate and can remain unset until the playback transport is chosen.
+        "local_playback_path": (
+            playback_source.kodi_path or None
+            if playback_source is not None
+            else None
+        ),
+        "local_sources": [_local_source_dto(source) for source in local_sources],
     }
 
 

@@ -64,13 +64,13 @@ def _quality(file_row: dict | None) -> str | None:
 
 def _join_path(root: str | None, file_row: dict | None) -> str:
     if not file_row:
-        return root or ""
+        return ""
     path = file_row.get("path")
     if path:
         return path
     relative = file_row.get("relativePath")
     if not relative:
-        return root or ""
+        return ""
     if not root:
         return relative
     return str(PurePosixPath(root.replace("\\", "/")) / relative.replace("\\", "/"))
@@ -108,8 +108,8 @@ def _upsert_local(
         db.add(row)
     else:
         row.source_path = source_path or ""
-        # Local availability and Kodi playback routing are separate concerns.
-        # Do not manufacture a Kodi path from an Arr filesystem path.
+        # Arr owns availability + source location only. Kodi playback routing
+        # remains a separate concern and must not be manufactured here.
         row.available = available
         row.quality = quality
         row.updated_at = now
@@ -124,6 +124,8 @@ def _mark_provider_stale(db: Session, provider: str, seen_ids: set[tuple]) -> in
         identity = (row.media_id, row.provider_item_id)
         if identity not in seen_ids and row.available:
             row.available = False
+            row.source_path = ""
+            row.quality = None
             row.updated_at = datetime.now(timezone.utc)
             changed += 1
     return changed
@@ -163,7 +165,7 @@ async def sync_radarr(db: Session, integration: Integration) -> dict:
         file_row = arr.get("movieFile") if arr.get("hasFile") else None
         is_available = bool(arr.get("hasFile") and file_row)
         provider_item_id = str(arr.get("id"))
-        source_path = _join_path(arr.get("path"), file_row)
+        source_path = _join_path(arr.get("path"), file_row) if is_available else ""
         row = _upsert_local(
             db,
             media=media,
@@ -171,7 +173,7 @@ async def sync_radarr(db: Session, integration: Integration) -> dict:
             provider_item_id=provider_item_id,
             source_path=source_path,
             available=is_available,
-            quality=_quality(file_row),
+            quality=_quality(file_row) if is_available else None,
         )
         seen.add((media.id, provider_item_id))
         if row.available:
@@ -189,40 +191,35 @@ async def sync_radarr(db: Session, integration: Integration) -> dict:
 
 def _series_indexes(series_rows: list[dict]) -> tuple[dict, dict, dict]:
     by_tvdb = {}
+    by_tmdb = {}
     by_imdb = {}
-    by_title_year = {}
     for series in series_rows:
         tvdb = _norm(series.get("tvdbId"))
+        tmdb = _norm(series.get("tmdbId"))
         imdb = _norm(series.get("imdbId"))
-        title = _norm(series.get("title"))
-        year = series.get("year")
         if tvdb:
             by_tvdb[tvdb] = series
+        if tmdb:
+            by_tmdb[tmdb] = series
         if imdb:
             by_imdb[imdb] = series
-        if title:
-            by_title_year[(title, year)] = series
-            by_title_year.setdefault((title, None), series)
-    return by_tvdb, by_imdb, by_title_year
+    return by_tvdb, by_tmdb, by_imdb
 
 
 def _match_sonarr_series(
     media: Media,
     by_tvdb: dict,
+    by_tmdb: dict,
     by_imdb: dict,
-    by_title_year: dict,
 ) -> dict | None:
+    # Strict identity matching only. Sonarr is not a metadata authority and
+    # title/year fallbacks can create false local-availability matches.
     if media.tvdb_id and _norm(media.tvdb_id) in by_tvdb:
         return by_tvdb[_norm(media.tvdb_id)]
+    if media.tmdb_id and _norm(media.tmdb_id) in by_tmdb:
+        return by_tmdb[_norm(media.tmdb_id)]
     if media.imdb_id and _norm(media.imdb_id) in by_imdb:
         return by_imdb[_norm(media.imdb_id)]
-
-    title = media.series_title if media.media_type == "episode" else media.title
-    if title:
-        key = (_norm(title), media.year)
-        if key in by_title_year:
-            return by_title_year[key]
-        return by_title_year.get((_norm(title), None))
     return None
 
 
@@ -235,13 +232,19 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
         response.raise_for_status()
         series_rows = response.json()
 
-        by_tvdb, by_imdb, by_title_year = _series_indexes(series_rows)
+        by_tvdb, by_tmdb, by_imdb = _series_indexes(series_rows)
 
-        media_rows = list(db.scalars(select(Media).where(Media.media_type.in_(["show", "series", "tvshow", "episode"]))))
+        media_rows = list(
+            db.scalars(
+                select(Media).where(
+                    Media.media_type.in_(["show", "series", "tvshow", "episode"])
+                )
+            )
+        )
         grouped: dict[int, list[Media]] = defaultdict(list)
 
         for media in media_rows:
-            series = _match_sonarr_series(media, by_tvdb, by_imdb, by_title_year)
+            series = _match_sonarr_series(media, by_tvdb, by_tmdb, by_imdb)
             if series and series.get("id") is not None:
                 grouped[int(series["id"])].append(media)
 
@@ -266,7 +269,9 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
                 headers=headers,
             )
             files_resp.raise_for_status()
-            episode_files = {int(f["id"]): f for f in files_resp.json() if f.get("id") is not None}
+            episode_files = {
+                int(f["id"]): f for f in files_resp.json() if f.get("id") is not None
+            }
 
             episode_index = {
                 (int(e.get("seasonNumber", -1)), int(e.get("episodeNumber", -1))): e
@@ -286,7 +291,9 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
                     file_row = episode_files.get(int(file_id)) if file_id else None
                     is_available = bool(episode.get("hasFile") and file_row)
                     provider_item_id = str(episode.get("id"))
-                    source_path = _join_path(series.get("path"), file_row)
+                    source_path = (
+                        _join_path(series.get("path"), file_row) if is_available else ""
+                    )
                     row = _upsert_local(
                         db,
                         media=media,
@@ -294,7 +301,7 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
                         provider_item_id=provider_item_id,
                         source_path=source_path,
                         available=is_available,
-                        quality=_quality(file_row),
+                        quality=_quality(file_row) if is_available else None,
                     )
                 else:
                     matched += 1
@@ -306,7 +313,7 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
                         media=media,
                         provider="sonarr",
                         provider_item_id=provider_item_id,
-                        source_path=series.get("path") or "",
+                        source_path=(series.get("path") or "") if is_available else "",
                         available=is_available,
                         quality=None,
                     )
