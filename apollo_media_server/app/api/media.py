@@ -91,16 +91,36 @@ def upsert_media(payload: MediaCreate, db: Session = Depends(get_db)):
 def list_media(
     media_type: str | None = None,
     available_locally: bool | None = None,
+    canonical_id: str | None = None,
+    imdb_id: str | None = None,
+    season: int | None = None,
     db: Session = Depends(get_db),
 ):
     q = select(Media).order_by(Media.title)
+
     if media_type:
         q = q.where(Media.media_type == media_type)
-    rows = list(db.scalars(q))
-    result = [_dto(db, row) for row in rows]
-    if available_locally is not None:
-        result = [row for row in result if row["available_locally"] is available_locally]
-    return result
+    if canonical_id:
+        q = q.where(Media.canonical_id == canonical_id)
+    if imdb_id:
+        q = q.where(Media.imdb_id == imdb_id)
+    if season is not None:
+        q = q.where(Media.season == season)
+
+    local_exists = (
+        select(LocalAvailability.media_id)
+        .where(
+            LocalAvailability.media_id == Media.id,
+            LocalAvailability.available.is_(True),
+        )
+        .exists()
+    )
+    if available_locally is True:
+        q = q.where(local_exists)
+    elif available_locally is False:
+        q = q.where(~local_exists)
+
+    return [_dto(db, row) for row in db.scalars(q)]
 
 
 @router.get("/{media_id}")
