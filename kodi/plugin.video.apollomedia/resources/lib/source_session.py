@@ -69,6 +69,50 @@ def _path():
     return os.path.join(directory, "source_session.json")
 
 
+def _stream_key(stream):
+    """Return a stable release identity that survives refreshed playback URLs."""
+    title = str((stream or {}).get("title") or "").strip().lower()
+    key = re.sub(r"[^a-z0-9]", "", title)
+    if key:
+        return key
+    return str((stream or {}).get("url") or "").strip()
+
+
+def _flag_key(flag):
+    stored = str((flag or {}).get("stream_key") or "").strip()
+    if stored:
+        return stored
+    return _stream_key(flag or {})
+
+
+def _flag_matches_stream(flag, stream):
+    flag_key = _flag_key(flag)
+    stream_key = _stream_key(stream)
+    if flag_key and stream_key and flag_key == stream_key:
+        return True
+    flag_url = str((flag or {}).get("url") or "")
+    stream_url = str((stream or {}).get("url") or "")
+    return bool(flag_url and stream_url and flag_url == stream_url)
+
+
+def _stream_flag(stream, flag_rows):
+    for entry in flag_rows or []:
+        if _flag_matches_stream(entry, stream):
+            return entry
+    return None
+
+
+def _make_flag(stream, reason, created=None):
+    return {
+        "reason": reason,
+        "url": str((stream or {}).get("url") or ""),
+        "title": str((stream or {}).get("title") or ""),
+        "provider": str((stream or {}).get("provider") or ""),
+        "stream_key": _stream_key(stream or {}),
+        "created": float(created or time.time()),
+    }
+
+
 def save(streams, imdb_id, media_type, season, episode, title, resume_position=0, resume_duration=0, jellyfin_item_id="", resume_mode="native"):
     old = load()
     same_identity = bool(
@@ -77,7 +121,7 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
         and int(old.get("season") or 0) == int(season or 0)
         and int(old.get("episode") or 0) == int(episode or 0)
     )
-    flags = list(old.get("flags") or []) if same_identity else []
+    old_flags = list(old.get("flags") or []) if same_identity else []
 
     rows = [
         {
@@ -90,10 +134,25 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
         for stream in streams
     ]
 
-    flagged_urls = {str(flag.get("url") or "") for flag in flags}
-    first_clean = 0
+    # Playback URLs can rotate between provider searches. Re-bind saved flags to
+    # the newly returned URL using stable normalized release identity.
+    flags = []
+    for flag in old_flags:
+        matching_row = next((row for row in rows if _flag_matches_stream(flag, row)), None)
+        if matching_row:
+            flags.append(_make_flag(
+                matching_row,
+                str(flag.get("reason") or "flagged"),
+                flag.get("created"),
+            ))
+        else:
+            retained = dict(flag)
+            retained["stream_key"] = _flag_key(flag)
+            flags.append(retained)
+
+    first_clean = -1
     for idx, row in enumerate(rows):
-        if str(row.get("url") or "") not in flagged_urls:
+        if _stream_flag(row, flags) is None:
             first_clean = idx
             break
 
@@ -145,7 +204,8 @@ def current():
     if not data:
         return None
     streams = data.get("streams") or []
-    index = int(data.get("index") or 0)
+    raw_index = data.get("index")
+    index = int(raw_index if raw_index is not None else -1)
     return streams[index] if 0 <= index < len(streams) else None
 
 
@@ -168,9 +228,10 @@ def advance():
     if not data:
         return None, None
     streams = data.get("streams") or []
-    next_index = int(data.get("index") or 0) + 1
-    flagged_urls = {flag.get("url") for flag in data.get("flags", [])}
-    while next_index < len(streams) and streams[next_index].get("url") in flagged_urls:
+    raw_index = data.get("index")
+    next_index = int(raw_index if raw_index is not None else -1) + 1
+    flag_rows = list(data.get("flags") or [])
+    while next_index < len(streams) and _stream_flag(streams[next_index], flag_rows):
         next_index += 1
     if next_index >= len(streams):
         return data, None
@@ -184,15 +245,18 @@ def flag(reason):
     data = load()
     if not data:
         return None
-    stream = current()
+    streams = data.get("streams") or []
+    raw_index = data.get("index")
+    index = int(raw_index if raw_index is not None else -1)
+    stream = streams[index] if 0 <= index < len(streams) else None
     if not stream:
         return data
-    data.setdefault("flags", []).append({
-        "reason": reason,
-        "url": stream.get("url"),
-        "title": stream.get("title"),
-        "created": time.time(),
-    })
+    existing = [
+        entry for entry in (data.get("flags") or [])
+        if not _flag_matches_stream(entry, stream)
+    ]
+    existing.append(_make_flag(stream, reason))
+    data["flags"] = existing
     with open(_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
     return data
@@ -236,10 +300,16 @@ def flags():
 
 def flag_for_url(url):
     target = str(url or "")
-    for entry in flags():
+    data = load() or {}
+    flag_rows = list(data.get("flags") or [])
+    for entry in flag_rows:
         if str(entry.get("url") or "") == target:
             return entry
-    return None
+    stream = next(
+        (row for row in (data.get("streams") or []) if str(row.get("url") or "") == target),
+        None,
+    )
+    return _stream_flag(stream, flag_rows) if stream else None
 
 
 def is_flagged(index):
@@ -251,7 +321,7 @@ def is_flagged(index):
         stream = streams[int(index)]
     except Exception:
         return False
-    return flag_for_url(stream.get("url") or "") is not None
+    return _stream_flag(stream, data.get("flags") or []) is not None
 
 
 def flag_index(index, reason):
@@ -264,17 +334,11 @@ def flag_index(index, reason):
     except Exception:
         return None
 
-    url = str(stream.get("url") or "")
     existing = [
         entry for entry in (data.get("flags") or [])
-        if str(entry.get("url") or "") != url
+        if not _flag_matches_stream(entry, stream)
     ]
-    existing.append({
-        "reason": reason,
-        "url": url,
-        "title": stream.get("title"),
-        "created": time.time(),
-    })
+    existing.append(_make_flag(stream, reason))
     data["flags"] = existing
 
     with open(_path(), "w", encoding="utf-8") as handle:
@@ -292,11 +356,10 @@ def unflag_index(index):
     except Exception:
         return False
 
-    url = str(stream.get("url") or "")
     old_flags = list(data.get("flags") or [])
     new_flags = [
         entry for entry in old_flags
-        if str(entry.get("url") or "") != url
+        if not _flag_matches_stream(entry, stream)
     ]
     data["flags"] = new_flags
 
