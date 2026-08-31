@@ -252,6 +252,7 @@ def add_discovery_series(series, local=None, native_local=False, episode_hint=No
                 imdb_id=imdb_id,
                 tmdb_id=series.get("tmdb_id") or series.get("tmdb") or "",
                 release_date=series.get("released") or series.get("releaseInfo") or "",
+                in_library=bool(local or native_local),
             ),
         ),
         item,
@@ -1076,36 +1077,22 @@ def _ams_local_series_rows():
 
 
 def add_ams_library_show(row, presentation_context="library"):
-    imdb_id = str(row.get("imdb_id") or "")
-    title = str(row.get("series_title") or row.get("title") or "Unknown")
-    year = row.get("year")
-    poster = str(row.get("poster_url") or "")
-    backdrop = str(row.get("backdrop_url") or "")
-    overview = str(row.get("overview") or "")
-
-    item = xbmcgui.ListItem(label=title)
-    set_metadata(
-        item,
-        title,
-        overview,
-        year,
-        imdb_id,
-        poster,
-        backdrop,
-    )
-    item.setProperty("IsPlayable", "false")
-
-    target = plugin_url(
-        action="discovery_seasons",
-        imdb=imdb_id,
-        title=title,
-        native_local="1",
-        apollo_media_type="show",
+    # Local-library shows must use the same canonical show renderer/route as every other entry point.
+    add_discovery_series(
+        {
+            "imdb_id": str(row.get("imdb_id") or ""),
+            "tmdb_id": row.get("tmdb_id") or "",
+            "name": str(row.get("series_title") or row.get("title") or "Unknown"),
+            "description": str(row.get("overview") or ""),
+            "year": row.get("year"),
+            "released": row.get("release_date") or row.get("released") or "",
+            "poster": str(row.get("poster_url") or ""),
+            "background": str(row.get("backdrop_url") or ""),
+        },
+        local=True,
+        native_local=True,
         presentation_context=presentation_context,
-        in_library="1",
     )
-
-    xbmcplugin.addDirectoryItem(HANDLE, target, item, True)
 
 
 
