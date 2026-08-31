@@ -37,13 +37,30 @@ def _upsert_one(db, payload, profile_id):
     q = q.where(Media.episode.is_(None) if episode is None else Media.episode == episode)
     media = db.scalar(q)
     if media is None:
-        media = Media(media_type=media_type, canonical_id=canonical_id, title=payload.title, series_title=payload.series_title,
-                      imdb_id=payload.imdb_id, tmdb_id=payload.tmdb_id, tvdb_id=payload.tvdb_id, season=season, episode=episode)
+        media = Media(
+            media_type=media_type,
+            canonical_id=canonical_id,
+            title=payload.title,
+            series_title=payload.series_title,
+            imdb_id=payload.imdb_id,
+            tmdb_id=payload.tmdb_id,
+            tvdb_id=payload.tvdb_id,
+            year=getattr(payload, "year", None),
+            overview=getattr(payload, "overview", None),
+            poster_url=getattr(payload, "poster_url", None),
+            backdrop_url=getattr(payload, "backdrop_url", None),
+            season=season,
+            episode=episode,
+        )
         db.add(media); db.flush()
     else:
-        for field in ("title","series_title","imdb_id","tmdb_id","tvdb_id"):
+        for field in (
+            "title", "series_title", "imdb_id", "tmdb_id", "tvdb_id",
+            "year", "overview", "poster_url", "backdrop_url",
+        ):
             value = getattr(payload, field, None)
-            if value is not None: setattr(media, field, value)
+            if value is not None:
+                setattr(media, field, value)
     progress = db.scalar(select(Progress).where(Progress.profile_id == profile_id, Progress.media_id == media.id))
     incoming = _utc(payload.updated_at)
     if progress is None:
@@ -86,8 +103,23 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
         duration=max(0,p.duration_seconds); fraction=p.position_seconds/duration if duration else 0
         if p.position_seconds <= 0 or p.watched or fraction >= .90: continue
         local=db.scalar(select(LocalAvailability).where(LocalAvailability.media_id==m.id,LocalAvailability.available.is_(True)))
-        out.append(ContinueWatchingItem(media_id=m.id,media_type=m.media_type,canonical_id=m.canonical_id,title=m.title,
-            series_title=m.series_title,imdb_id=m.imdb_id,tmdb_id=m.tmdb_id,tvdb_id=m.tvdb_id,season=m.season,episode=m.episode,
-            position_seconds=p.position_seconds,duration_seconds=duration,progress_fraction=fraction,
+        out.append(ContinueWatchingItem(
+            media_id=m.id,
+            media_type=m.media_type,
+            canonical_id=m.canonical_id,
+            title=m.title,
+            series_title=m.series_title,
+            imdb_id=m.imdb_id,
+            tmdb_id=m.tmdb_id,
+            tvdb_id=m.tvdb_id,
+            year=m.year,
+            overview=m.overview,
+            poster_url=m.poster_url,
+            backdrop_url=m.backdrop_url,
+            season=m.season,
+            episode=m.episode,
+            position_seconds=p.position_seconds,
+            duration_seconds=duration,
+            progress_fraction=fraction,
             available_locally=bool(local and local.kodi_path),local_playback_path=local.kodi_path if local else None,updated_at=p.updated_at))
     return out

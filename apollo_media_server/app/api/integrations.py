@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.integration import Integration
 from app.schemas.integration import IntegrationRead, IntegrationTestResult, IntegrationUpsert
-from app.services.arr import SUPPORTED_KINDS, test_integration
+from app.services.arr import SUPPORTED_KINDS as ARR_SUPPORTED_KINDS, test_integration as test_arr_integration
+from app.services.tmdb import TMDB_KIND, test_integration as test_tmdb_integration
+
+
+SUPPORTED_KINDS = ARR_SUPPORTED_KINDS | {TMDB_KIND}
 
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -32,7 +36,7 @@ def upsert_integration(payload: IntegrationUpsert, db: Session = Depends(get_db)
     kind = payload.kind.strip().lower()
     name = payload.name.strip() or "default"
     if kind not in SUPPORTED_KINDS:
-        raise HTTPException(status_code=400, detail="kind must be radarr or sonarr")
+        raise HTTPException(status_code=400, detail="kind must be radarr, sonarr, or tmdb")
 
     row = db.scalar(
         select(Integration).where(
@@ -69,6 +73,8 @@ async def test_saved_integration(kind: str, name: str, db: Session = Depends(get
     if row is None:
         raise HTTPException(status_code=404, detail="Integration not found")
     try:
-        return await test_integration(row)
+        if row.kind == TMDB_KIND:
+            return await test_tmdb_integration(row)
+        return await test_arr_integration(row)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"{kind} connection failed: {exc}") from exc

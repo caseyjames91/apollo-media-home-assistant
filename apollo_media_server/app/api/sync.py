@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.sync_state import SyncState
 from app.services.catalog_sync import sync_jellyfin
+from app.services.tmdb import sync_metadata
 
 router = APIRouter(tags=["sync"])
 
@@ -30,3 +31,12 @@ def jellyfin_sync_status(db: Session = Depends(get_db)):
         "catalog_items": state.catalog_items,
         "continue_watching_items": state.continue_watching_items,
     }
+
+
+
+@router.post("/metadata/sync")
+async def metadata_sync(db: Session = Depends(get_db)):
+    try:
+        return await sync_metadata(db)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Metadata sync failed: {exc}") from exc

@@ -12,6 +12,10 @@ class ProgressUpsert(BaseModel):
     imdb_id: str | None = None
     tmdb_id: str | None = None
     tvdb_id: str | None = None
+    year: int | None = None
+    overview: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
@@ -27,6 +31,10 @@ class ProgressImportItem(BaseModel):
     imdb_id: str | None = None
     tmdb_id: str | None = None
     tvdb_id: str | None = None
+    year: int | None = None
+    overview: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
@@ -48,6 +56,10 @@ class ContinueWatchingItem(BaseModel):
     imdb_id: str | None = None
     tmdb_id: str | None = None
     tvdb_id: str | None = None
+    year: int | None = None
+    overview: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
     season: int | None = None
     episode: int | None = None
     position_seconds: float
