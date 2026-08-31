@@ -224,6 +224,10 @@ def _match_sonarr_series(
 
 
 async def sync_sonarr(db: Session, integration: Integration) -> dict:
+    # Reconcile Sonarr's complete local TV inventory into Apollo's catalog.
+    # Sonarr remains authority only for local existence, source path, quality,
+    # and stable external identity. Existing Apollo/TMDB presentation metadata
+    # is never overwritten by Sonarr.
     headers = _headers(integration)
     base = _base_url(integration)
 
@@ -232,32 +236,88 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
         response.raise_for_status()
         series_rows = response.json()
 
-        by_tvdb, by_tmdb, by_imdb = _series_indexes(series_rows)
-
-        media_rows = list(
+        existing = list(
             db.scalars(
                 select(Media).where(
                     Media.media_type.in_(["show", "series", "tvshow", "episode"])
                 )
             )
         )
-        grouped: dict[int, list[Media]] = defaultdict(list)
 
-        for media in media_rows:
-            series = _match_sonarr_series(media, by_tvdb, by_tmdb, by_imdb)
-            if series and series.get("id") is not None:
-                grouped[int(series["id"])].append(media)
+        def identity_values(series: dict) -> tuple[str | None, str | None, str | None]:
+            return (
+                _norm(series.get("tvdbId")),
+                _norm(series.get("tmdbId")),
+                _norm(series.get("imdbId")),
+            )
+
+        def canonical_for(series: dict) -> str | None:
+            tvdb, tmdb, imdb = identity_values(series)
+            if tmdb:
+                return f"tmdb:{tmdb}"
+            if tvdb:
+                return f"tvdb:{tvdb}"
+            if imdb:
+                return imdb
+            return None
+
+        def same_series(media: Media, series: dict) -> bool:
+            tvdb, tmdb, imdb = identity_values(series)
+            return bool(
+                (tvdb and _norm(media.tvdb_id) == tvdb)
+                or (tmdb and _norm(media.tmdb_id) == tmdb)
+                or (imdb and _norm(media.imdb_id) == imdb)
+            )
+
+        def apply_missing_identity(media: Media, series: dict) -> None:
+            if not media.tvdb_id and series.get("tvdbId"):
+                media.tvdb_id = str(series.get("tvdbId"))
+            if not media.tmdb_id and series.get("tmdbId"):
+                media.tmdb_id = str(series.get("tmdbId"))
+            if not media.imdb_id and series.get("imdbId"):
+                media.imdb_id = str(series.get("imdbId"))
 
         seen: set[tuple] = set()
         matched = 0
         available = 0
+        created_shows = 0
+        created_episodes = 0
 
-        for series_id, medias in grouped.items():
-            series = next(s for s in series_rows if int(s.get("id")) == series_id)
+        for series in series_rows:
+            series_id = series.get("id")
+            canonical = canonical_for(series)
+            if series_id is None or not canonical:
+                continue
+
+            show_row = next(
+                (
+                    media for media in existing
+                    if media.media_type in ("show", "series", "tvshow")
+                    and same_series(media, series)
+                ),
+                None,
+            )
+            if show_row is None:
+                show_row = Media(
+                    media_type="show",
+                    canonical_id=canonical,
+                    title=str(series.get("title") or "Unknown Show"),
+                    series_title=str(series.get("title") or "Unknown Show"),
+                    imdb_id=str(series.get("imdbId") or "") or None,
+                    tmdb_id=str(series.get("tmdbId") or "") or None,
+                    tvdb_id=str(series.get("tvdbId") or "") or None,
+                    year=series.get("year"),
+                )
+                db.add(show_row)
+                db.flush()
+                existing.append(show_row)
+                created_shows += 1
+            else:
+                apply_missing_identity(show_row, series)
 
             episodes_resp = await client.get(
                 f"{base}/api/v3/episode",
-                params={"seriesId": series_id},
+                params={"seriesId": int(series_id)},
                 headers=headers,
             )
             episodes_resp.raise_for_status()
@@ -265,62 +325,93 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
 
             files_resp = await client.get(
                 f"{base}/api/v3/episodefile",
-                params={"seriesId": series_id},
+                params={"seriesId": int(series_id)},
                 headers=headers,
             )
             files_resp.raise_for_status()
             episode_files = {
-                int(f["id"]): f for f in files_resp.json() if f.get("id") is not None
+                int(f["id"]): f for f in files_resp.json()
+                if f.get("id") is not None
             }
 
-            episode_index = {
-                (int(e.get("seasonNumber", -1)), int(e.get("episodeNumber", -1))): e
-                for e in episodes
-            }
+            for episode in episodes:
+                season_number = int(episode.get("seasonNumber", -1))
+                episode_number = int(episode.get("episodeNumber", -1))
+                if season_number < 0 or episode_number < 0:
+                    continue
 
-            for media in medias:
-                if media.media_type == "episode":
-                    if media.season is None or media.episode is None:
-                        continue
-                    episode = episode_index.get((int(media.season), int(media.episode)))
-                    if not episode:
-                        continue
+                file_id = episode.get("episodeFileId")
+                file_row = episode_files.get(int(file_id)) if file_id else None
+                is_available = bool(episode.get("hasFile") and file_row)
 
-                    matched += 1
-                    file_id = episode.get("episodeFileId")
-                    file_row = episode_files.get(int(file_id)) if file_id else None
-                    is_available = bool(episode.get("hasFile") and file_row)
-                    provider_item_id = str(episode.get("id"))
-                    source_path = (
-                        _join_path(series.get("path"), file_row) if is_available else ""
+                media = next(
+                    (
+                        candidate for candidate in existing
+                        if candidate.media_type == "episode"
+                        and int(candidate.season if candidate.season is not None else -1) == season_number
+                        and int(candidate.episode if candidate.episode is not None else -1) == episode_number
+                        and same_series(candidate, series)
+                    ),
+                    None,
+                )
+
+                if media is None and not is_available:
+                    continue
+
+                if media is None:
+                    media = Media(
+                        media_type="episode",
+                        canonical_id=canonical,
+                        title=str(episode.get("title") or f"Episode {episode_number}"),
+                        series_title=str(series.get("title") or "Unknown Show"),
+                        imdb_id=str(series.get("imdbId") or "") or None,
+                        tmdb_id=str(series.get("tmdbId") or "") or None,
+                        tvdb_id=str(series.get("tvdbId") or "") or None,
+                        year=series.get("year"),
+                        season=season_number,
+                        episode=episode_number,
                     )
-                    row = _upsert_local(
-                        db,
-                        media=media,
-                        provider="sonarr",
-                        provider_item_id=provider_item_id,
-                        source_path=source_path,
-                        available=is_available,
-                        quality=_quality(file_row) if is_available else None,
-                    )
+                    db.add(media)
+                    db.flush()
+                    existing.append(media)
+                    created_episodes += 1
                 else:
-                    matched += 1
-                    stats = series.get("statistics") or {}
-                    is_available = bool(stats.get("episodeFileCount", 0))
-                    provider_item_id = f"series:{series_id}"
-                    row = _upsert_local(
-                        db,
-                        media=media,
-                        provider="sonarr",
-                        provider_item_id=provider_item_id,
-                        source_path=(series.get("path") or "") if is_available else "",
-                        available=is_available,
-                        quality=None,
-                    )
+                    apply_missing_identity(media, series)
 
+                matched += 1
+                provider_item_id = str(episode.get("id"))
+                source_path = (
+                    _join_path(series.get("path"), file_row)
+                    if is_available else ""
+                )
+                row = _upsert_local(
+                    db,
+                    media=media,
+                    provider="sonarr",
+                    provider_item_id=provider_item_id,
+                    source_path=source_path,
+                    available=is_available,
+                    quality=_quality(file_row) if is_available else None,
+                )
                 seen.add((media.id, provider_item_id))
                 if row.available:
                     available += 1
+
+            stats = series.get("statistics") or {}
+            show_available = bool(stats.get("episodeFileCount", 0))
+            show_provider_id = f"series:{series_id}"
+            show_local = _upsert_local(
+                db,
+                media=show_row,
+                provider="sonarr",
+                provider_item_id=show_provider_id,
+                source_path=(series.get("path") or "") if show_available else "",
+                available=show_available,
+                quality=None,
+            )
+            seen.add((show_row.id, show_provider_id))
+            if show_local.available:
+                available += 1
 
     stale = _mark_provider_stale(db, "sonarr", seen)
     db.commit()
@@ -328,6 +419,8 @@ async def sync_sonarr(db: Session, integration: Integration) -> dict:
         "provider": "sonarr",
         "matched": matched,
         "available": available,
+        "created_shows": created_shows,
+        "created_episodes": created_episodes,
         "marked_unavailable": stale,
     }
 
