@@ -96,6 +96,27 @@ class ProfileOwnedResumeTests(unittest.TestCase):
         ams_get = source.index("ams.resume_progress", resume_start)
         self.assertLess(ams_get, local_get)
 
+    def test_ams_local_playback_resolver_uses_profile_resume_not_local_cache(self):
+        source = ADDON_ROOT.joinpath("main.py").read_text(encoding="utf-8")
+        start = source.index("def resolved_playback_item(")
+        end = source.index("\ndef play_resolved(", start)
+        resolver = source[start:end]
+        ams_branch = resolver[resolver.index('if source == "ams":'):resolver.index('if source == "remote":')]
+        self.assertIn("position, duration = canonical_local_resume(", ams_branch)
+        self.assertNotIn("saved = progress.get(imdb_id, season, episode)", ams_branch)
+
+    def test_explicit_handoff_and_start_over_still_override_profile_resume(self):
+        source = ADDON_ROOT.joinpath("main.py").read_text(encoding="utf-8")
+        start = source.index("def resolved_playback_item(")
+        end = source.index("\ndef play_resolved(", start)
+        resolver = source[start:end]
+        ams_branch = resolver[resolver.index('if source == "ams":'):resolver.index('if source == "remote":')]
+        profile_read = ams_branch.index("position, duration = canonical_local_resume(")
+        explicit_start = ams_branch.index('if start_position not in (None, ""):', profile_read)
+        start_over = ams_branch.index('elif resume_mode == "start_over":', explicit_start)
+        self.assertLess(profile_read, explicit_start)
+        self.assertLess(explicit_start, start_over)
+
 
 if __name__ == "__main__":
     unittest.main()

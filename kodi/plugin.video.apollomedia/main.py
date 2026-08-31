@@ -2357,9 +2357,14 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
         if not ams.device_key(ADDON):
             raise RuntimeError("AMS device key is not configured")
 
-        saved = progress.get(imdb_id, season, episode) or {}
-        position = float(saved.get("position") or 0)
-        duration = float(saved.get("duration") or 0)
+        # AMS profile progress is the canonical resume authority across Kodi
+        # clients. The local Kodi progress DB is only used by
+        # canonical_local_resume() when AMS itself is unavailable.
+        position, duration = canonical_local_resume(
+            imdb_id, media_type, season, episode, title, resume_item_id
+        )
+        position = float(position or 0)
+        duration = float(duration or 0)
 
         # A headless source transition supplies the player's current absolute
         # position. It must win over a potentially older persisted progress row.
