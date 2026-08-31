@@ -516,7 +516,10 @@ class ApolloMediaCard extends HTMLElement {
     const imdb = String(item?.imdb_id || "");
     const tmdb = String(item?.tmdb_id || "");
     const jellyfinId = String(item?.jellyfin_item_id || "");
-    const artworkId = String(item?.artwork_jellyfin_item_id || jellyfinId);
+    const posterUrl = this.artworkUrl(item?.poster_url || "");
+    const backdropUrl = this.artworkUrl(item?.backdrop_url || "");
+    const overview = String(item?.overview || "");
+    const year = Number(item?.year || 0);
     const remoteMediaType = isEpisode ? "series" : "movie";
     const commonRemote = {
       imdb,
@@ -563,11 +566,11 @@ class ApolloMediaCard extends HTMLElement {
       series_title: isEpisode ? (seriesTitle || displayTitle) : "",
       episode_title: isEpisode ? episodeTitle : "",
       subtitle: isEpisode ? `S${season} E${episode}${episodeTitle ? ` · ${episodeTitle}` : ""}` : "",
-      poster: artworkId ? (this._amsArtworkUrls.get(artworkId) || "") : "",
-      ams_artwork_id: artworkId,
-      fanart: "",
-      plot: "",
-      year: 0,
+      poster: posterUrl,
+      ams_artwork_id: "",
+      fanart: backdropUrl,
+      plot: overview,
+      year,
       media_type: isEpisode ? "episode" : "movie",
       season: isEpisode ? season : 0,
       episode: isEpisode ? episode : 0,

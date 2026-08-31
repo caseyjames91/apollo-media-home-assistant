@@ -52,6 +52,20 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
         self.assertIn('source: "ams"', body)
         self.assertIn("item?.available_locally", body)
 
+    def test_card_ams_continue_uses_ams_metadata(self):
+        start = CARD.index("  amsContinueItem(item) {")
+        end = CARD.index("  async amsArtworkBlobUrl(", start)
+        body = CARD[start:end]
+        self.assertIn("item?.poster_url", body)
+        self.assertIn("item?.backdrop_url", body)
+        self.assertIn("item?.overview", body)
+        self.assertIn("item?.year", body)
+        self.assertIn("poster: posterUrl", body)
+        self.assertIn("fanart: backdropUrl", body)
+        self.assertIn("plot: overview", body)
+        self.assertIn("ams_artwork_id: \"\"", body)
+        self.assertNotIn("artwork_jellyfin_item_id", body)
+
     def test_ha_local_switch_accepts_ams_play_resolved(self):
         start = HA.index("  apollo_switch_local:")
         end = HA.index("  apollo_play:", start)
