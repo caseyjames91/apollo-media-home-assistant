@@ -124,6 +124,50 @@ def continue_watching(addon, local_progress=None):
     return rows if isinstance(rows, list) else []
 
 
+def resume_progress(addon, imdb_id, media_type="movie", season=0, episode=0):
+    """Return profile-owned resumable progress for one canonical identity.
+
+    A successful AMS response with no matching continue-watching row means the
+    profile has no resumable progress for this item and returns (0, 0). Network
+    or configuration failures are deliberately allowed to raise so callers can
+    distinguish an unavailable authority from an authoritative zero position.
+    """
+    if not configured(addon):
+        raise RuntimeError("AMS URL is not configured")
+
+    imdb_id = str(imdb_id or "").strip().lower()
+    if not imdb_id:
+        return 0.0, 0.0
+
+    season = int(season or 0)
+    episode = int(episode or 0)
+    profile_id = resolve_profile_id(addon)
+    rows = _request(addon, f"profiles/{profile_id}/continue-watching", timeout=6) or []
+
+    for row in rows if isinstance(rows, list) else []:
+        row_imdb = str(row.get("imdb_id") or "").strip().lower()
+        if row_imdb != imdb_id:
+            continue
+        row_season = int(row.get("season") or 0)
+        row_episode = int(row.get("episode") or 0)
+        if row_season != season or row_episode != episode:
+            continue
+        return (
+            max(0.0, float(row.get("position_seconds") or 0)),
+            max(0.0, float(row.get("duration_seconds") or 0)),
+        )
+
+    return 0.0, 0.0
+
+
+def reset_progress(addon, imdb_id, media_type, season=0, episode=0, title=""):
+    """Clear resumable progress for the configured AMS profile."""
+    return report_progress(
+        addon, imdb_id, media_type, int(season or 0), int(episode or 0),
+        title, 0.0, 0.0, updated=time.time(),
+    )
+
+
 def device_key(addon):
     """Return the AMS device key configured for this Kodi instance."""
     return str(addon.getSettingString("ams_device_key") or "").strip()

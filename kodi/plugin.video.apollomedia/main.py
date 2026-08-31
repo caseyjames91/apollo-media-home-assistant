@@ -1752,8 +1752,19 @@ def _apollo_updated_epoch(entry):
 
 
 def canonical_local_resume(imdb_id, media_type, season, episode, title, item_id=""):
-    """Return Apollo-owned progress for one canonical media identity."""
-    saved = progress.get(imdb_id, int(season or 0), int(episode or 0)) if imdb_id else None
+    """Return profile-owned AMS progress, with local state only as fallback."""
+    season = int(season or 0)
+    episode = int(episode or 0)
+    if imdb_id and ams.configured(ADDON):
+        try:
+            return ams.resume_progress(ADDON, imdb_id, media_type, season, episode)
+        except Exception as exc:
+            xbmc.log(
+                f"[Apollo Media] AMS resume unavailable; using local fallback: {exc}",
+                xbmc.LOGWARNING,
+            )
+
+    saved = progress.get(imdb_id, season, episode) if imdb_id else None
     if not saved:
         return 0, 0
     return float(saved.get("position") or 0), float(saved.get("duration") or 0)
@@ -1800,12 +1811,12 @@ def choose_resume_start(imdb_id, media_type, season=0, episode=0, title="", resu
                 progress.remove(imdb_id, season, episode)
                 source_session.clear_resume(imdb_id, season, episode)
 
-            if resume_item_id:
+            if imdb_id and ams.configured(ADDON):
                 try:
-                    jellyfin().set_resume(resume_item_id, 0)
+                    ams.reset_progress(ADDON, imdb_id, media_type, season, episode, title)
                 except Exception as exc:
                     xbmc.log(
-                        f"[Apollo Media] Could not reset Jellyfin resume: {exc}",
+                        f"[Apollo Media] Could not reset AMS profile progress: {exc}",
                         xbmc.LOGWARNING,
                     )
 
