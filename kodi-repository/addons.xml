@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addons>
-<addon id="plugin.video.apollomedia" name="Apollo Media" version="0.9.91" provider-name="Apollo Media">
+<addon id="plugin.video.apollomedia" name="Apollo Media" version="0.9.92" provider-name="Apollo Media">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
@@ -10,7 +10,7 @@
   <extension point="xbmc.service" library="service.py" start="login"/>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">A unified, local-first Kodi media browser</summary>
-    <description lang="en_GB">Apollo presents movie and TV discovery with Jellyfin as one Kodi-native library. Local Jellyfin copies are preferred automatically and retain Jellyfin resume and watched state.</description>
+    <description lang="en_GB">Apollo provides Kodi-native movie and TV discovery, Apollo-owned progress, local media resolution, and remote stream playback.</description>
     <platform>all</platform>
     <license>MIT</license>
   </extension>

@@ -7,7 +7,7 @@ ADDON = (ROOT / "addon.xml").read_text(encoding="utf-8")
 
 class AmsContinueWatchingTests(unittest.TestCase):
     def test_release_version(self):
-        self.assertIn('version="0.9.91"', ADDON)
+        self.assertIn('version="0.9.92"', ADDON)
         self.assertIn('const APOLLO_CARD_VERSION = "0.9.83";', CARD)
 
     def test_ams_is_default_continue_authority_with_safe_fallback(self):
