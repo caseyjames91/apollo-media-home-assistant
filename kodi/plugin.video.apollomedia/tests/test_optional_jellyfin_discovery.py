@@ -19,7 +19,7 @@ class ApolloDiscoveryTests(unittest.TestCase):
 
     def test_episode_discovery_has_no_jellyfin_dependency(self):
         start = MAIN.index("def discovery_episodes(")
-        end = MAIN.index("def show_seasons(", start)
+        end = MAIN.index("def continue_watching(", start)
         body = MAIN[start:end]
 
         self.assertIn("series_details(imdb_id)", body)

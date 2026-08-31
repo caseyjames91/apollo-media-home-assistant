@@ -15,10 +15,8 @@ import xbmcplugin
 from resources.lib.discovery import popular_movies, popular_series, search_movies, search_series, series_details, progress_metadata, movie_catalog, series_catalog
 from resources.lib.compatibility import detect as detect_compatibility, profile as compatibility_profile
 from resources.lib import progress, source_session, active_media, playback_session, ams
-from resources.lib.jellyfin import JellyfinClient
 from resources.lib.sources import find_streams
 from resources.lib.torbox import link_account
-from resources.lib.media_service import MediaService
 from resources.lib.render.kodi import add_directory_item as render_media_item
 from resources.lib.stream_dialog import StreamChooserDialog
 from resources.lib.playback_intent import resolve_remote_position
@@ -35,18 +33,6 @@ def parameters():
 
 def plugin_url(**values):
     return BASE_URL + "?" + urlencode(values)
-
-
-def jellyfin():
-    return JellyfinClient(
-        ADDON.getSettingString("jellyfin_url"),
-        ADDON.getSettingString("jellyfin_token"),
-        ADDON.getSettingString("jellyfin_user_id"),
-    )
-
-
-def media_service():
-    return MediaService(jellyfin())
 
 
 def notify(message, level=xbmcgui.NOTIFICATION_INFO):
@@ -138,27 +124,17 @@ def _card_media_type(item_type, season=0, episode=0):
     return "movie"
 
 
-def _provider_id(item, *names):
-    ids = item.get("ProviderIds") or {}
-    for name in names:
-        value = ids.get(name)
-        if value:
-            return str(value)
-    return ""
-
-
 def _card_route_fields(*, media_type, presentation_context="", imdb_id="", tmdb_id="",
-                       jellyfin_item_id="", show_title="", season=0, episode=0,
+                       show_title="", season=0, episode=0,
                        release_date="", date_added="", last_episode_added="",
                        in_library=False, watched=False, show_target="", season_target="",
                        remove_target="", remote_auto_target="", remote_choose_target="",
                        card_play_target=""):
-    values = {
+    return {
         "apollo_media_type": _card_media_type(media_type, season, episode),
         "presentation_context": str(presentation_context or ""),
         "imdb": str(imdb_id or ""),
         "tmdb": str(tmdb_id or ""),
-        "jellyfin_item_id": str(jellyfin_item_id or ""),
         "show_title": str(show_title or ""),
         "season": int(season or 0),
         "episode": int(episode or 0),
@@ -174,7 +150,6 @@ def _card_route_fields(*, media_type, presentation_context="", imdb_id="", tmdb_
         "remote_choose_target": str(remote_choose_target or ""),
         "card_play_target": str(card_play_target or ""),
     }
-    return values
 
 
 def add_discovery_movie(movie, local=None, native_local=False, presentation_context="discovery"):
@@ -243,18 +218,6 @@ def episode_hint_params(hint):
         "latest_episode": episode,
         "latest_episode_title": str(hint.get("title") or f"Episode {episode}"),
     }
-
-
-def _annotate_episode_parent_identity(video, by_id, by_name):
-    series_id = str(video.get("SeriesId") or "")
-    parent = by_id.get(series_id) or by_name.get(str(video.get("SeriesName") or "").strip().casefold()) or {}
-    if parent.get("imdb"):
-        video["_ApolloSeriesImdb"] = parent["imdb"]
-    if parent.get("tmdb"):
-        video["_ApolloSeriesTmdb"] = parent["tmdb"]
-    if parent.get("id"):
-        video["_ApolloSeriesId"] = parent["id"]
-    return video
 
 
 def add_discovery_series(series, local=None, native_local=False, episode_hint=None, presentation_context="discovery"):
@@ -351,118 +314,6 @@ def add_discovery_episode(episode, imdb_id, local=None, native_local=False):
     item.addContextMenuItems([("Choose Remote Stream", f"RunPlugin({remote_choose_target})")])
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
 
-def jellyfin_series_display(series):
-    """Return display metadata for a local Jellyfin series without slowing the library."""
-    provider_ids = series.get("ProviderIds") or {}
-    imdb_id = provider_ids.get("Imdb") or provider_ids.get("IMDb") or ""
-
-    jellyfin_title = str(series.get("Name") or "").strip()
-    bad_names = {"tvshows", "tvshow", "shows", "series", "unknown"}
-
-    raw_path = str(series.get("Path") or "").rstrip("/\\")
-    path_title = os.path.basename(raw_path) if raw_path else ""
-
-    # Normal Jellyfin titles are already useful. Do not make a network
-    # metadata request for every show just to redraw the library.
-    if jellyfin_title and jellyfin_title.casefold() not in bad_names:
-        return {
-            "title": jellyfin_title,
-            "plot": series.get("Overview") or "",
-            "year": series.get("ProductionYear"),
-            "imdb_id": imdb_id,
-        }
-
-    # Only repair metadata when Jellyfin is clearly broken.
-    canonical = {}
-    if imdb_id:
-        try:
-            canonical = series_details(imdb_id) or {}
-        except Exception as exc:
-            xbmc.log(
-                f"[Apollo Media] Series metadata repair failed for {imdb_id}: {exc}",
-                xbmc.LOGWARNING,
-            )
-
-    title = (
-        canonical.get("name")
-        or canonical.get("title")
-        or path_title
-        or jellyfin_title
-        or "Unknown"
-    )
-
-    return {
-        "title": title,
-        "plot": canonical.get("description") or series.get("Overview") or "",
-        "year": canonical.get("releaseInfo") or canonical.get("year") or series.get("ProductionYear"),
-        "imdb_id": imdb_id,
-    }
-
-
-def add_jellyfin_series(series, display=None):
-    jf = jellyfin()
-    item_id = series.get("Id") or ""
-    display = display or jellyfin_series_display(series)
-    title = display["title"]
-    imdb_id = display["imdb_id"]
-
-    item = xbmcgui.ListItem(label=literal_label(title))
-    set_metadata(
-        item,
-        title,
-        display["plot"],
-        display["year"],
-        imdb_id,
-        jf.image_url(item_id),
-        jf.image_url(item_id, "Backdrop", 1280),
-    )
-    item.setProperty("IsPlayable", "false")
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        plugin_url(
-            action="seasons", series_id=item_id, title=title, imdb=imdb_id,
-            apollo_media_type="show", presentation_context="library",
-            jellyfin_item_id=item_id, in_library="1",
-        ),
-        item,
-        True,
-    )
-
-
-def add_season(season, series_id, imdb_id=""):
-    jf = jellyfin()
-    season_id = season.get("Id") or ""
-    title = season.get("Name") or "Season"
-    item = xbmcgui.ListItem(label=title)
-    season_art = jellyfin_primary_art(jf, season)
-    show_art = public_art(imdb_id)
-    set_metadata(
-        item,
-        title,
-        season.get("Overview") or "",
-        imdb_id=imdb_id,
-        poster=season_art or show_art,
-    )
-    item.setProperty("IsPlayable", "false")
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        plugin_url(
-            action="episodes", series_id=series_id, season_id=season_id, imdb=imdb_id,
-            apollo_media_type="season", presentation_context="browse",
-            jellyfin_item_id=season_id, season=int(season.get("IndexNumber") or 0), in_library="1",
-        ),
-        item,
-        True,
-    )
-
-
-def require_jellyfin():
-    jf = jellyfin()
-    if jf.ready:
-        return jf
-    notify("Connect your Jellyfin user first", xbmcgui.NOTIFICATION_WARNING)
-    return None
-
 
 def home():
     # Apollo-owned Continue Watching and discovery.
@@ -494,19 +345,11 @@ def finish_action():
 
 
 def render_show_media(media):
-    if media.source == "jellyfin" and media.ids.jellyfin:
-        target = plugin_url(
-            action="seasons",
-            series_id=media.ids.jellyfin,
-            title=media.title,
-            imdb=media.ids.imdb,
-        )
-    else:
-        target = plugin_url(
-            action="discovery_seasons",
-            imdb=media.ids.imdb,
-            title=media.title,
-        )
+    target = plugin_url(
+        action="discovery_seasons",
+        imdb=media.ids.imdb,
+        title=media.title,
+    )
     render_media_item(HANDLE, target, media, True)
 
 
@@ -541,31 +384,31 @@ def search():
     xbmcplugin.endOfDirectory(HANDLE)
 
 def remote_movie_catalog(list_type="popular", query=""):
-    """Headless movie listing for Kodi JSON-RPC/Home Assistant clients."""
+    """Headless movie listing from Apollo discovery/catalog authority."""
     if list_type == "library":
-        library()
+        remote_ams_library("movie", presentation_context="library")
         return
-    jf = require_jellyfin()
+
     xbmcplugin.setContent(HANDLE, "movies")
-    if jf:
-        try:
-            local_index = jf.movie_index()
-            if query:
-                movies = search_movies(query)
-            elif list_type == "new":
-                movies = movie_catalog("year", str(datetime.now().year))
-            elif list_type == "featured":
-                movies = movie_catalog("imdbRating")
-            else:
-                movies = popular_movies()
-            for movie in movies:
-                imdb_id = str(movie.get("imdb_id") or movie.get("id") or "").lower()
-                add_discovery_movie(
-                    movie, local_index.get(imdb_id), native_local=True,
-                    presentation_context="popular" if list_type == "popular" else list_type,
-                )
-        except Exception as exc:
-            notify(f"Could not load movies: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    try:
+        if query:
+            movies = search_movies(query)
+        elif list_type == "new":
+            movies = movie_catalog("year", str(datetime.now().year))
+        elif list_type == "featured":
+            movies = movie_catalog("imdbRating")
+        else:
+            movies = popular_movies()
+
+        for movie in movies:
+            add_discovery_movie(
+                movie,
+                local=None,
+                native_local=False,
+                presentation_context="popular" if list_type == "popular" else list_type,
+            )
+    except Exception as exc:
+        notify(f"Could not load movies: {exc}", xbmcgui.NOTIFICATION_ERROR)
     xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
 
 
@@ -733,15 +576,7 @@ def remote_active_playback():
             and playing_file == local.get("playback_path")
         )
 
-        # Transitional compatibility for legacy Jellyfin-resolved sessions.
-        local_id = player.getVideoInfoTag().getUniqueID("jellyfin")
-        is_jellyfin_local = bool(
-            local
-            and local.get("source") == "local"
-            and local_id
-            and local_id == local.get("jellyfin_item_id")
-        )
-        is_local = is_ams_local or is_jellyfin_local
+        is_local = is_ams_local
         if not remote and not is_local:
             xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
             return
@@ -759,7 +594,7 @@ def remote_active_playback():
     show_title = metadata.get("show_title") or data.get("show_title") or ""
     show_target = plugin_url(action="discovery_seasons", imdb=imdb_id, title=show_title) if show_title and imdb_id else ""
     season_target = plugin_url(action="discovery_episodes", imdb=imdb_id, season=season) if show_title and imdb_id and season else ""
-    identity = continue_key(imdb_id, season, episode, data.get("jellyfin_item_id") or "")
+    identity = continue_key(imdb_id, season, episode)
     item = xbmcgui.ListItem(label=title)
     set_metadata(item, title, metadata.get("plot") or "", metadata.get("year"), imdb_id,
                  metadata.get("poster") or "", metadata.get("fanart") or "")
@@ -768,7 +603,7 @@ def remote_active_playback():
         tag.setSeason(season); tag.setEpisode(episode)
         if show_title: tag.setTvShowTitle(show_title)
     remote_auto_target, remote_choose_target = remote_card_targets(
-        imdb_id, media_type, season, episode, title, data.get("jellyfin_item_id") or ""
+        imdb_id, media_type, season, episode, title, ""
     )
     current_stream = selected if remote else {}
     current_index = int(session.get("index") or 0) if remote else -1
@@ -779,7 +614,6 @@ def remote_active_playback():
     quality = str(player_technical.get("quality") or current_stream.get("quality") or "")
     video_info = str(player_technical.get("video") or current_stream.get("video") or "")
     audio_info = str(player_technical.get("audio") or current_stream.get("audio") or "")
-    jellyfin_item_id = str(data.get("jellyfin_item_id") or "")
     local_target = ""
     if imdb_id and ams.configured(ADDON) and ams.device_key(ADDON):
         try:
@@ -806,7 +640,6 @@ def remote_active_playback():
     xbmcplugin.addDirectoryItem(HANDLE, plugin_url(
         action="apollo_active_media", apollo_identity=identity, apollo_remote="1" if remote else "0",
         imdb=imdb_id, media_type=media_type, apollo_media_type=card_media_type, season=season, episode=episode,
-        jellyfin_item_id=data.get("jellyfin_item_id") or "",
         show_title=show_title, title=title, show_target=show_target,
         season_target=season_target,
         remote_auto_target=remote_auto_target,
@@ -838,14 +671,6 @@ def public_art(imdb_id, image_type="poster"):
         return ""
     size = "medium" if image_type == "poster" else "medium"
     return f"https://images.metahub.space/{image_type}/{size}/{imdb_id}/img"
-
-
-def jellyfin_primary_art(jf, item):
-    """Return Jellyfin primary artwork only when the item advertises one."""
-    image_tags = item.get("ImageTags") or {}
-    if image_tags.get("Primary") or item.get("PrimaryImageTag"):
-        return jf.image_url(item.get("Id") or "")
-    return ""
 
 
 def clean_episode_title(value, show_title="", season=0, episode=0):
@@ -888,82 +713,6 @@ def clean_episode_title(value, show_title="", season=0, episode=0):
     return text
 
 
-def best_episode_title(episode, canonical, season, number):
-    show_title = canonical.get("show_title") or episode.get("SeriesName") or ""
-
-    # Apollo discovery metadata is the presentation authority when available.
-    title = clean_episode_title(
-        canonical.get("title") or "",
-        show_title,
-        season,
-        number or 0,
-    )
-    if title:
-        return title
-
-    # Jellyfin remains the fallback for display metadata and the authority for
-    # local availability, playback and resume state.
-    title = clean_episode_title(
-        episode.get("Name") or "",
-        show_title,
-        season,
-        number or 0,
-    )
-    if title:
-        return title
-
-    return f"Episode {number}" if number is not None else "Episode"
-
-
-def series_imdb_for_episode(jf, video, by_id, by_name):
-    """Resolve an episode to its parent series IMDb id, never its episode id."""
-    series_id = str(video.get("SeriesId") or "")
-    if series_id and series_id not in by_id:
-        try:
-            series = jf.item(series_id)
-            ids = series.get("ProviderIds") or {}
-            by_id[series_id] = ids.get("Imdb") or ids.get("IMDb") or ""
-        except Exception:
-            by_id[series_id] = ""
-    return (
-        by_id.get(series_id, "")
-        or by_name.get(str(video.get("SeriesName") or "").strip().lower(), "")
-    )
-
-
-def local_item_for_identity(jf, imdb_id, media_type="movie", season=0, episode=0):
-    """Resolve a canonical IMDb(+S/E) identity back to its Jellyfin item.
-
-    This is used when Apollo progress is newer than Jellyfin's resume list, so
-    Continue Watching can still retain local-library capabilities.
-    """
-    if not jf or not imdb_id:
-        return None
-    key = str(imdb_id or "").strip().lower()
-    try:
-        if str(media_type or "movie") == "series" or int(episode or 0) > 0:
-            series = (jf.series_index() or {}).get(key) or {}
-            series_id = str(series.get("Id") or "")
-            if not series_id:
-                return None
-            for item in jf.episodes(series_id):
-                if (
-                    int(item.get("ParentIndexNumber") or 0) == int(season or 0)
-                    and int(item.get("IndexNumber") or 0) == int(episode or 0)
-                ):
-                    item["_ApolloSeriesImdb"] = imdb_id
-                    item["_ApolloSeriesId"] = series_id
-                    return item
-            return None
-
-        movie = (jf.library_index("movie") or {}).get(key) or {}
-        item_id = str(movie.get("Id") or "")
-        return jf.item(item_id) if item_id else None
-    except Exception as exc:
-        xbmc.log(f"[Apollo Media] Local identity lookup failed: {exc}", xbmc.LOGWARNING)
-        return None
-
-
 def continue_key(imdb_id="", season=0, episode=0, fallback_id=""):
     identity = str(imdb_id or fallback_id or "").strip().lower()
     if not identity:
@@ -977,51 +726,6 @@ def _cw_debug(context, event, **fields):
         xbmc.log(f"APOLLO_CW_DEBUG {context} {event} {payload}", xbmc.LOGINFO)
     except Exception:
         pass
-
-
-def _cw_entry_title(entry):
-    if entry.get("source") == "jellyfin":
-        return str((entry.get("video") or {}).get("Name") or "Unknown")
-    return str((entry.get("progress") or {}).get("title") or "Unknown")
-
-
-def _cw_entry_debug_fields(entry, apollo_entry=None):
-    source = entry.get("source") or ""
-    video = entry.get("video") or {}
-    progress_entry = apollo_entry or entry.get("progress") or {}
-    user_data = video.get("UserData") or {}
-    is_jellyfin = source == "jellyfin"
-    item_type = str(video.get("Type") or "") if is_jellyfin else ""
-    season = int(
-        (video.get("ParentIndexNumber") if is_jellyfin else progress_entry.get("season"))
-        or 0
-    )
-    episode = int(
-        (video.get("IndexNumber") if is_jellyfin else progress_entry.get("episode"))
-        or 0
-    )
-    media_type = (
-        "series" if item_type == "Episode"
-        else "movie" if is_jellyfin
-        else str(progress_entry.get("media_type") or "movie")
-    )
-    jellyfin_raw = user_data.get("LastPlayedDate") if is_jellyfin else None
-    return {
-        "identity": entry.get("identity") or "",
-        "title": _cw_entry_title(entry),
-        "media_type": media_type,
-        "season": season,
-        "episode": episode,
-        "jellyfin_item_id": str(video.get("Id") or "") if is_jellyfin else "",
-        "jellyfin_lastplayed_raw": jellyfin_raw,
-        "jellyfin_timestamp": _jellyfin_updated_epoch(user_data) if is_jellyfin else 0.0,
-        "apollo_updated_raw": progress_entry.get("updated"),
-        "apollo_position": progress_entry.get("position"),
-        "apollo_duration": progress_entry.get("duration"),
-        "activity_timestamp": float(entry.get("activity") or 0),
-        "source": source,
-        "jellyfin_backed": is_jellyfin,
-    }
 
 
 def ams_continue_watching_rows():
@@ -1184,115 +888,6 @@ def add_ams_continue_item(row, card_playback=False):
     ])
 
     xbmcplugin.addDirectoryItem(HANDLE, play_path, item, False)
-
-def continue_watching_entries(jf, context="UNKNOWN"):
-    """Build one deduplicated, newest-first timeline across both progress stores."""
-    entries = []
-    diagnostic_progress = {}
-    seen = set()
-    progress_entries = progress.recent()
-    progress_by_identity = {}
-    for entry in progress_entries:
-        identity = continue_key(
-            entry.get("imdb_id"), entry.get("season"), entry.get("episode")
-        )
-        if identity and _apollo_updated_epoch(entry) > _apollo_updated_epoch(
-            progress_by_identity.get(identity)
-        ):
-            progress_by_identity[identity] = entry
-
-    if jf:
-        try:
-            series_by_id = {}
-            series_by_name = {
-                str(value.get("Name") or "").strip().lower(): imdb
-                for imdb, value in jf.series_index().items()
-                if value.get("Name")
-            }
-            for video in jf.resume_items():
-                provider_ids = video.get("ProviderIds") or {}
-                imdb_id = provider_ids.get("Imdb") or provider_ids.get("IMDb") or ""
-                season = int(video.get("ParentIndexNumber") or 0)
-                episode = int(video.get("IndexNumber") or 0)
-                if video.get("Type") == "Episode":
-                    imdb_id = series_imdb_for_episode(
-                        jf, video, series_by_id, series_by_name
-                    )
-                    video["_ApolloSeriesImdb"] = imdb_id
-
-                fallback_id = (
-                    video.get("SeriesId") if video.get("Type") == "Episode"
-                    else video.get("Id")
-                ) or video.get("Id") or ""
-                identity = continue_key(imdb_id, season, episode, fallback_id)
-                if identity and identity in seen:
-                    continue
-                if identity:
-                    seen.add(identity)
-
-                jellyfin_activity = _jellyfin_updated_epoch(
-                    video.get("UserData") or {}
-                )
-                apollo_activity = _apollo_updated_epoch(
-                    progress_by_identity.get(identity)
-                )
-                candidate = {
-                    "identity": identity,
-                    "source": "jellyfin",
-                    "activity": max(jellyfin_activity, apollo_activity),
-                    "imdb_id": imdb_id,
-                    "video": video,
-                }
-                entries.append(candidate)
-                diagnostic_progress[id(candidate)] = progress_by_identity.get(identity)
-        except Exception as exc:
-            notify(f"Could not load Continue Watching: {exc}", xbmcgui.NOTIFICATION_ERROR)
-
-    for entry in progress_entries:
-        identity = continue_key(
-            entry.get("imdb_id"), entry.get("season"), entry.get("episode")
-        )
-        if identity and identity in seen:
-            continue
-        if identity:
-            seen.add(identity)
-        candidate = {
-            "identity": identity,
-            "source": "apollo",
-            "activity": _apollo_updated_epoch(entry),
-            "progress": entry,
-        }
-        entries.append(candidate)
-        diagnostic_progress[id(candidate)] = entry
-
-    for candidate_index, entry in enumerate(entries):
-        _cw_debug(
-            context,
-            "BEFORE_SORT",
-            candidate_index=candidate_index,
-            **_cw_entry_debug_fields(entry, diagnostic_progress.get(id(entry))),
-        )
-
-    entries.sort(
-        key=lambda entry: (
-            1 if float(entry.get("activity") or 0) > 0 else 0,
-            float(entry.get("activity") or 0),
-        ),
-        reverse=True,
-    )
-    _cw_debug(
-        context,
-        "AFTER_SORT_ORDER",
-        titles=[_cw_entry_title(entry) for entry in entries],
-    )
-    for final_index, entry in enumerate(entries):
-        _cw_debug(
-            context,
-            "FINAL_ENTRY",
-            final_index=final_index,
-            **_cw_entry_debug_fields(entry, diagnostic_progress.get(id(entry))),
-        )
-    return entries
 
 
 def remote_card_targets(imdb_id, media_type, season=0, episode=0, title="", resume_item_id=""):
@@ -1565,34 +1160,6 @@ def discovery_episodes(imdb_id, season_number, native_local=False):
         notify(f"Could not load episodes: {exc}", xbmcgui.NOTIFICATION_ERROR)
     xbmcplugin.endOfDirectory(HANDLE)
 
-def show_seasons(series_id, imdb_id="", title="", native_local=False):
-    jf = require_jellyfin()
-    xbmcplugin.setContent(HANDLE, "seasons")
-    if jf:
-        try:
-            for media in media_service().local_seasons(series_id, imdb_id, title):
-                show_target = plugin_url(
-                    action="seasons", series_id=series_id, title=title, imdb=imdb_id,
-                    native_local="1" if native_local else "",
-                    apollo_media_type="show", presentation_context="browse", in_library="1",
-                    jellyfin_item_id=series_id,
-                )
-                target = plugin_url(
-                    action="episodes",
-                    series_id=series_id,
-                    season_id=media.playback.get("season_id") or media.ids.jellyfin,
-                    imdb=imdb_id,
-                    title=media.show_title or title,
-                    native_local="1" if native_local else "",
-                    apollo_media_type="season", presentation_context="browse", in_library="1",
-                    jellyfin_item_id=media.ids.jellyfin, season=media.season or 0,
-                    show_title=media.show_title or title, show_target=show_target,
-                )
-                render_media_item(HANDLE, target, media, True)
-        except Exception as exc:
-            notify(f"Could not load seasons: {exc}", xbmcgui.NOTIFICATION_ERROR)
-    xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
-
 
 def continue_watching():
     xbmcplugin.setContent(HANDLE, "movies")
@@ -1605,122 +1172,6 @@ def continue_watching():
         add_ams_continue_item(row, card_playback=False)
     xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
 
-def add_external_progress(entry, card_playback=False):
-    season = int(entry.get("season") or 0)
-    episode = int(entry.get("episode") or 0)
-    imdb_id = entry.get("imdb_id") or ""
-    media_type = entry.get("media_type") or ("series" if episode else "movie")
-    local_video = local_item_for_identity(
-        require_jellyfin(), imdb_id, media_type, season, episode
-    )
-    local_item_id = str((local_video or {}).get("Id") or "")
-    metadata = {}
-    try:
-        metadata = progress_metadata(
-            imdb_id,
-            entry.get("media_type") or "movie",
-            season,
-            episode,
-        )
-    except Exception as exc:
-        xbmc.log(f"[Apollo Media] Progress metadata failed: {exc}", xbmc.LOGWARNING)
-    title = metadata.get("title") or entry.get("title") or "Unknown"
-    show_title = metadata.get("show_title") or ""
-
-    if episode:
-        code = f"S{season:02d}E{episode:02d}"
-        label = f"{show_title} • {code} • {title}" if show_title else f"{code} • {title}"
-    else:
-        label = title
-
-    item = xbmcgui.ListItem(label=label)
-    set_metadata(
-        item,
-        title,
-        metadata.get("plot") or "",
-        metadata.get("year"),
-        imdb_id,
-        metadata.get("poster") or "",
-        metadata.get("fanart") or "",
-    )
-    tag = item.getVideoInfoTag()
-    if episode:
-        tag.setSeason(season)
-        tag.setEpisode(episode)
-        if show_title:
-            tag.setTvShowTitle(show_title)
-    position = float(entry.get("position") or 0)
-    duration = float(entry.get("duration") or 0)
-    if position > 0 and duration > 0:
-        tag.setResumePoint(position, duration)
-    item.setProperty("IsPlayable", "true")
-    item.addContextMenuItems([
-        (
-            "Choose Remote Stream",
-            f"RunPlugin({plugin_url(action='choose_external', imdb=imdb_id, media_type=entry.get('media_type') or 'movie', season=season, episode=episode, title=title)})",
-        ),
-        (
-            "Remove from Continue Watching",
-            f"RunPlugin({plugin_url(action='remove_continue', source='apollo', imdb=imdb_id, season=season, episode=episode)})",
-        ),
-    ])
-
-    show_target = ""
-    season_target = ""
-    if episode and imdb_id:
-        show_target = plugin_url(action="discovery_seasons", imdb=imdb_id, title=show_title)
-        season_target = plugin_url(
-            action="discovery_episodes", imdb=imdb_id, season=season, title=show_title,
-            show_title=show_title, show_target=show_target,
-            apollo_media_type="season", presentation_context="browse",
-        )
-    remove_target = plugin_url(
-        action="remove_continue", source="apollo", imdb=imdb_id,
-        season=season, episode=episode,
-    )
-    remote_auto_target, remote_choose_target = remote_card_targets(
-        imdb_id, media_type, season, episode, title, local_item_id
-    )
-    card_play_target = plugin_url(
-        action="play_resolved",
-        source="ams",
-        imdb=imdb_id,
-        media_type=media_type,
-        season=season,
-        episode=episode,
-        title=title,
-    ) if imdb_id else ""
-
-    route_fields = _card_route_fields(
-        media_type="episode" if episode else "movie",
-        presentation_context="continue",
-        imdb_id=imdb_id,
-        jellyfin_item_id=local_item_id,
-        show_title=show_title,
-        season=season,
-        episode=episode,
-        in_library=bool(local_item_id),
-        show_target=show_target,
-        season_target=season_target,
-        remove_target=remove_target,
-        remote_auto_target=remote_auto_target,
-        remote_choose_target=remote_choose_target,
-        card_play_target=card_play_target,
-    )
-    xbmcplugin.addDirectoryItem(
-        HANDLE,
-        plugin_url(
-            action="play_resolved" if card_playback else "play_external_resolved_prompt",
-            source="remote",
-            media_type=media_type,
-            resume_item_id=local_item_id,
-            title=title,
-            **route_fields,
-        ),
-        item,
-        False,
-    )
-
 
 def play_discovery(imdb_id, title):
     play_resolved(
@@ -1729,18 +1180,6 @@ def play_discovery(imdb_id, title):
         media_type="movie",
         title=title,
     )
-
-def _jellyfin_updated_epoch(user_data):
-    value = str((user_data or {}).get("LastPlayedDate") or "").strip()
-    if not value:
-        return 0.0
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.timestamp()
-    except Exception:
-        return 0.0
 
 
 def _apollo_updated_epoch(entry):
@@ -2441,7 +1880,6 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
                 "transport": "ams",
                 "provider": str(ams_decision.get("provider") or ""),
                 "playback_path": playback_path,
-                "jellyfin_item_id": "",
                 "imdb_id": str(imdb_id),
                 "media_type": media_type,
                 "season": season,

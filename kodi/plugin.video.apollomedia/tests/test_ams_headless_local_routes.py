@@ -41,7 +41,7 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
 
     def test_ams_continue_card_playback_uses_ams_identity(self):
         start = MAIN.index("def add_ams_continue_item(")
-        end = MAIN.index("def continue_watching_entries(", start)
+        end = MAIN.index("def remote_card_targets(", start)
         body = MAIN[start:end]
         self.assertIn('source="ams"', body)
         self.assertIn('row.get("available_locally")', body)
