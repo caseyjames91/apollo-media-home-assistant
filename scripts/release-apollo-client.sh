@@ -190,6 +190,8 @@ CHECKSUM="${PACKAGE}.sha256"
 [[ -f "$PACKAGE" ]] || fail "Kodi package was not produced"
 [[ -f "$CHECKSUM" ]] || fail "Kodi checksum was not produced"
 
+python3 scripts/verify-kodi-package.py "$PACKAGE"
+
 # ---------------------------------------------------------
 # Commit canonical monorepo release
 # ---------------------------------------------------------

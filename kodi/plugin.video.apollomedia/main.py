@@ -323,6 +323,8 @@ def home():
     add_folder("Popular Shows", "popular_series")
     add_folder("Search Movies", "search")
     add_folder("Search Shows", "search_series")
+    add_folder("Library Movies", "library")
+    add_folder("Library Shows", "series_library")
 
     if ADDON.getSettingString("torbox_token"):
         add_action("Relink TorBox", "link_torbox")
