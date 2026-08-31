@@ -121,5 +121,8 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
             position_seconds=p.position_seconds,
             duration_seconds=duration,
             progress_fraction=fraction,
-            available_locally=bool(local and local.kodi_path),local_playback_path=local.kodi_path if local else None,updated_at=p.updated_at))
+            available_locally=bool(local),
+            local_playback_path=None,
+            updated_at=p.updated_at,
+        ))
     return out
