@@ -76,7 +76,7 @@ class RemoteResumeSemanticsTests(unittest.TestCase):
 
     def test_remote_start_does_not_persist_transient_position(self):
         source = ADDON_ROOT.joinpath("service.py").read_text(encoding="utf-8")
-        self.assertIn('(self.item_id or event != "start")', source)
+        self.assertIn('and event != "start"', source)
 
     def test_normal_progress_after_start_over_can_save_new_position(self):
         source = ADDON_ROOT.joinpath("service.py").read_text(encoding="utf-8")
@@ -91,8 +91,6 @@ class RemoteResumeSemanticsTests(unittest.TestCase):
                 saves.append((args, kwargs))
 
         class Player:
-            item_id = ""
-            remote_jellyfin_item_id = ""
             imdb_id = "tt123"
             media_type = "movie"
             season = 0
@@ -100,11 +98,10 @@ class RemoteResumeSemanticsTests(unittest.TestCase):
             title = "Movie"
             last_ticks = 0
             last_duration = 0
-            play_session_id = ""
             def position_ticks(self): return 600 * 10000000
             def getTotalTime(self): return 7200
 
-        namespace = {"progress": Progress, "jellyfin": lambda: None, "xbmc": object()}
+        namespace = {"progress": Progress, "xbmc": object()}
         exec(compile(ast.Module(body=[report], type_ignores=[]), "service.py", "exec"), namespace)
         namespace["report"](Player(), "start")
         self.assertEqual(saves, [])

@@ -1884,12 +1884,10 @@ def play_external(imdb_id, media_type, season=None, episode=None, title="", resu
 
     source_session.save(
         streams, imdb_id, media_type, season, episode, title,
-        resume_position, resume_duration, resume_item_id,
-        session_resume_mode,
+        resume_position, resume_duration, session_resume_mode,
     )
     playback_session.save(
         "remote", imdb_id, media_type, season, episode, title,
-        jellyfin_item_id=resume_item_id,
         requested_start_position=resume_position,
         requested_duration=resume_duration,
         resume_mode=session_resume_mode,
@@ -2121,7 +2119,7 @@ def remote_stream_list(imdb_id, media_type, season=None, episode=None, title="",
         )
         session = source_session.save(
             streams, imdb_id, media_type, season, episode, title,
-            resume_position, resume_duration, resume_item_id,
+            resume_position, resume_duration,
         )
 
     flags_by_url = {
@@ -2229,7 +2227,7 @@ def choose_external(imdb_id, media_type, season=None, episode=None, title="", re
 
         session = source_session.save(
             streams, imdb_id, media_type, season, episode, title,
-            resume_position, resume_duration, resume_item_id,
+            resume_position, resume_duration,
         )
 
         while True:
@@ -2310,7 +2308,6 @@ def play_session_stream(index, start_position=None, start_duration=None, resume_
         session.get("season"),
         session.get("episode"),
         session.get("title") or "",
-        jellyfin_item_id=session.get("jellyfin_item_id") or "",
         requested_start_position=position,
         requested_duration=duration,
         resume_mode=mode,
@@ -2444,7 +2441,6 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
                 season,
                 episode,
                 title,
-                jellyfin_item_id="",
                 requested_start_position=position,
                 requested_duration=duration,
                 resume_mode=resume_mode or "native",
@@ -2464,12 +2460,11 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
         position,duration,session_mode=resolve_remote_position(
             resume_mode,start_position,start_duration,
             lambda: apollo_resume(resume_item_id,imdb_id,media_type,season,episode,title))
-        source_session.save(streams,imdb_id,media_type,season,episode,title,position,duration,resume_item_id,session_mode)
+        source_session.save(streams,imdb_id,media_type,season,episode,title,position,duration,session_mode)
         selected=source_session.current()
         if not selected: raise RuntimeError("No unflagged stream is available")
         playback_session.save(
             "remote", imdb_id, media_type, season, episode, title,
-            jellyfin_item_id=resume_item_id,
             requested_start_position=position,
             requested_duration=duration,
             resume_mode=session_mode,

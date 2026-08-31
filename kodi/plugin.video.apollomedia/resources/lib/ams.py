@@ -89,7 +89,7 @@ def import_progress(addon, entries):
     return _request(addon, "progress/import", method="POST", payload={"profile_id": profile_id, "items": items}, timeout=10)
 
 
-def report_progress(addon, imdb_id, media_type, season, episode, title, position, duration, updated=None, jellyfin_item_id=""):
+def report_progress(addon, imdb_id, media_type, season, episode, title, position, duration, updated=None):
     if not configured(addon) or not imdb_id:
         return False
     profile_id = resolve_profile_id(addon)
@@ -101,7 +101,6 @@ def report_progress(addon, imdb_id, media_type, season, episode, title, position
         "canonical_id": str(imdb_id),
         "title": str(title or "Unknown"),
         "imdb_id": str(imdb_id),
-        "jellyfin_item_id": str(jellyfin_item_id or "") or None,
         "season": season if (season or episode) else None,
         "episode": episode if (season or episode) else None,
         "position_seconds": max(0.0, float(position or 0)),

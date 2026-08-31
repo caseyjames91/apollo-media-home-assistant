@@ -2,7 +2,7 @@
 
 This file contains no provider URLs.  It is the shared lifecycle contract
 between source resolution and PlaybackMonitor, regardless of whether the
-resolved URL came from Jellyfin or a remote provider.
+resolved URL came from local storage or a remote provider.
 """
 import json
 import os
@@ -31,7 +31,7 @@ def _write(data):
 
 
 def save(source, imdb_id="", media_type="movie", season=0, episode=0,
-         title="", jellyfin_item_id="", requested_start_position=0,
+         title="", requested_start_position=0,
          requested_duration=0, resume_mode="native"):
     return _write({
         "created": time.time(),
@@ -41,7 +41,6 @@ def save(source, imdb_id="", media_type="movie", season=0, episode=0,
         "season": int(season or 0),
         "episode": int(episode or 0),
         "title": str(title or ""),
-        "jellyfin_item_id": str(jellyfin_item_id or ""),
         "requested_start_position": float(requested_start_position or 0),
         "requested_duration": float(requested_duration or 0),
         "resume_mode": str(resume_mode or "native"),
@@ -63,13 +62,8 @@ def load(max_age=MAX_AGE_SECONDS):
         return {}
 
 
-def identity_matches(data, imdb_id="", season=0, episode=0, jellyfin_item_id=""):
+def identity_matches(data, imdb_id="", season=0, episode=0):
     data = data or {}
-    wanted_jf = str(jellyfin_item_id or "")
-    actual_jf = str(data.get("jellyfin_item_id") or "")
-    if wanted_jf and actual_jf and wanted_jf == actual_jf:
-        return True
-
     wanted_imdb = str(imdb_id or "").strip().lower()
     actual_imdb = str(data.get("imdb_id") or "").strip().lower()
     return bool(
