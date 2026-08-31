@@ -310,7 +310,7 @@ def add_discovery_episode(episode, imdb_id, local=None, native_local=False):
     item.setProperty("IsPlayable", "true")
     remote_auto_target, remote_choose_target = remote_card_targets(imdb_id, "series", season_number, episode_number, title, "")
     show_title = episode.get("showTitle") or episode.get("seriesName") or ""
-    target = plugin_url(action="play_resolved", source="ams", imdb=imdb_id, media_type="series", apollo_media_type="episode", presentation_context="browse", season=season_number, episode=episode_number, title=title, show_title=show_title, show_target=plugin_url(action="discovery_seasons", imdb=imdb_id, title=show_title), season_target=plugin_url(action="discovery_episodes", imdb=imdb_id, season=season_number), remote_auto_target=remote_auto_target, remote_choose_target=remote_choose_target, card_play_target=plugin_url(action="play_resolved", source="ams", imdb=imdb_id, media_type="series", season=season_number, episode=episode_number, title=title))
+    target = plugin_url(action="play_resolved", source="ams", imdb=imdb_id, media_type="series", apollo_media_type="episode", presentation_context="browse", season=season_number, episode=episode_number, title=title, show_title=show_title, in_library="1" if local else "0", show_target=plugin_url(action="discovery_seasons", imdb=imdb_id, title=show_title, native_local="1" if native_local else ""), season_target=plugin_url(action="discovery_episodes", imdb=imdb_id, season=season_number, title=show_title, native_local="1" if native_local else ""), remote_auto_target=remote_auto_target, remote_choose_target=remote_choose_target, card_play_target=plugin_url(action="play_resolved", source="ams", imdb=imdb_id, media_type="series", season=season_number, episode=episode_number, title=title))
     item.addContextMenuItems([("Choose Remote Stream", f"RunPlugin({remote_choose_target})")])
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
 
@@ -1014,7 +1014,7 @@ def add_ams_library_movie(row, presentation_context="library"):
     )
     item.setProperty("IsPlayable", "true")
 
-    target = plugin_url(
+    local_target = plugin_url(
         action="play_resolved",
         source="ams",
         imdb=imdb_id,
@@ -1022,6 +1022,26 @@ def add_ams_library_movie(row, presentation_context="library"):
         season=0,
         episode=0,
         title=title,
+    )
+    remote_auto_target, remote_choose_target = remote_card_targets(
+        imdb_id, "movie", 0, 0, title, ""
+    )
+    target = plugin_url(
+        action="play_resolved",
+        source="ams",
+        title=title,
+        **_card_route_fields(
+            media_type="movie",
+            presentation_context=presentation_context,
+            imdb_id=imdb_id,
+            tmdb_id=row.get("tmdb_id") or "",
+            release_date=row.get("release_date") or row.get("released") or "",
+            date_added=row.get("date_added") or "",
+            in_library=True,
+            remote_auto_target=remote_auto_target,
+            remote_choose_target=remote_choose_target,
+            card_play_target=local_target,
+        ),
     )
 
     xbmcplugin.addDirectoryItem(HANDLE, target, item, False)
@@ -1132,8 +1152,8 @@ def discovery_seasons(imdb_id, title, native_local=False):
                 imdb_id,
                 season_number,
                 title,
-                False,
-                False,
+                bool(native_local),
+                bool(native_local),
             )
     except Exception as exc:
         notify(f"Could not load seasons: {exc}", xbmcgui.NOTIFICATION_ERROR)
@@ -1153,8 +1173,8 @@ def discovery_episodes(imdb_id, season_number, native_local=False):
             add_discovery_episode(
                 episode,
                 imdb_id,
-                None,
-                False,
+                bool(native_local),
+                bool(native_local),
             )
     except Exception as exc:
         notify(f"Could not load episodes: {exc}", xbmcgui.NOTIFICATION_ERROR)

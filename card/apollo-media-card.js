@@ -648,10 +648,12 @@ class ApolloMediaCard extends HTMLElement {
       const showFolder = ["discovery_seasons", "seasons"].includes(action);
       const fileSeason = Number(file.season);
       const fileEpisode = Number(file.episode);
+      const hasParamSeason = Object.prototype.hasOwnProperty.call(params, "season");
+      const hasParamEpisode = Object.prototype.hasOwnProperty.call(params, "episode");
       const paramSeason = Number(params.season);
       const paramEpisode = Number(params.episode);
-      const rawSeason = Number.isFinite(fileSeason) && fileSeason >= 0 ? fileSeason : paramSeason;
-      const rawEpisode = Number.isFinite(fileEpisode) && fileEpisode >= 0 ? fileEpisode : paramEpisode;
+      const rawSeason = hasParamSeason && Number.isFinite(paramSeason) ? paramSeason : fileSeason;
+      const rawEpisode = hasParamEpisode && Number.isFinite(paramEpisode) ? paramEpisode : fileEpisode;
       const season = Number.isFinite(rawSeason) && rawSeason >= 0 ? rawSeason : 0;
       const episode = Number.isFinite(rawEpisode) && rawEpisode > 0 ? rawEpisode : 0;
       const canonicalType = String(params.apollo_media_type || "").trim() ||
@@ -2775,8 +2777,9 @@ class ApolloMediaCard extends HTMLElement {
   seasonDisplayLabel(item) {
     const params = this.fileParams(item?.file || "");
     const itemSeason = Number(item?.season);
+    const hasParamSeason = Object.prototype.hasOwnProperty.call(params, "season");
     const paramSeason = Number(params.season);
-    const season = Number.isFinite(itemSeason) && itemSeason >= 0 ? itemSeason : paramSeason;
+    const season = hasParamSeason && Number.isFinite(paramSeason) ? paramSeason : itemSeason;
     if (Number.isFinite(season)) return season === 0 ? "Specials" : `Season ${season}`;
     const title = String(item?.title || "").trim();
     return /^specials$/i.test(title) ? "Specials" : title;
@@ -2797,7 +2800,10 @@ class ApolloMediaCard extends HTMLElement {
     const children = browsingEpisodes && expectedSeason >= 0
       ? rawChildren.filter(child => {
           const childParams = this.fileParams(child?.file || "");
-          const childSeason = Number(child?.season || childParams.season || 0);
+          const childParamSeason = Number(childParams.season);
+          const childSeason = Object.prototype.hasOwnProperty.call(childParams, "season") && Number.isFinite(childParamSeason)
+            ? childParamSeason
+            : Number(child?.season || 0);
           return childSeason === expectedSeason;
         }).sort((left, right) => Number(left?.episode || 0) - Number(right?.episode || 0))
       : rawChildren;
