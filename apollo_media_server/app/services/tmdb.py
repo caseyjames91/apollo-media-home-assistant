@@ -37,6 +37,45 @@ def _image_url(path: str | None) -> str | None:
     return IMAGE_BASE_URL + path
 
 
+async def resolve_external_ids(db: Session, media: Media) -> Media:
+    """Lazily complete provider-facing external IDs and persist them."""
+    if media.imdb_id:
+        return media
+
+    tmdb_id = str(media.tmdb_id or "").strip()
+    if not tmdb_id:
+        return media
+
+    media_type = str(media.media_type or "").strip().lower()
+    if media_type not in {"movie", "show"}:
+        return media
+
+    integration = db.scalar(
+        select(Integration).where(
+            Integration.kind == TMDB_KIND,
+            Integration.enabled.is_(True),
+        )
+    )
+    if integration is None or not integration.access_token:
+        raise RuntimeError("TMDB is not configured")
+
+    tmdb_kind = "movie" if media_type == "movie" else "tv"
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        response = await client.get(
+            f"{_base_url(integration)}/{tmdb_kind}/{tmdb_id}/external_ids",
+            headers=_headers(integration),
+        )
+        response.raise_for_status()
+        ids = response.json() or {}
+
+    imdb_id = str(ids.get("imdb_id") or "").strip()
+    if imdb_id:
+        media.imdb_id = imdb_id
+        db.commit()
+        db.refresh(media)
+    return media
+
+
 async def test_integration(integration: Integration) -> dict:
     if integration.kind != TMDB_KIND:
         raise ValueError(f"Unsupported integration kind: {integration.kind}")

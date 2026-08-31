@@ -94,6 +94,35 @@ def import_progress(payload: ProgressImport, db: Session = Depends(get_db)):
     db.commit(); return {"status":"ok","changed":changed,"skipped_older":skipped,"received":len(payload.items)}
 
 
+@router.get("/profiles/{profile_id}/progress")
+def profile_progress(profile_id: uuid.UUID, db: Session = Depends(get_db)):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    rows = db.execute(
+        select(Progress, Media)
+        .join(Media, Media.id == Progress.media_id)
+        .where(Progress.profile_id == profile_id)
+        .order_by(Progress.updated_at.desc())
+    ).all()
+
+    return [
+        {
+            "media_id": str(m.id),
+            "media_type": m.media_type,
+            "canonical_id": m.canonical_id,
+            "imdb_id": m.imdb_id,
+            "season": m.season,
+            "episode": m.episode,
+            "position_seconds": max(0, p.position_seconds),
+            "duration_seconds": max(0, p.duration_seconds),
+            "watched": bool(p.watched),
+            "updated_at": p.updated_at,
+        }
+        for p, m in rows
+    ]
+
+
 @router.get("/profiles/{profile_id}/continue-watching", response_model=list[ContinueWatchingItem])
 def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
     if db.get(Profile,profile_id) is None: raise HTTPException(status_code=404, detail="Profile not found")

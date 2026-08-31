@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.local_availability import LocalAvailability
 from app.models.media import Media
 from app.schemas.media import MediaCreate
+from app.services.tmdb import resolve_external_ids
 
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -121,6 +122,27 @@ def list_media(
         q = q.where(~local_exists)
 
     return [_dto(db, row) for row in db.scalars(q)]
+
+
+@router.get("/{media_id}/playback-identity")
+async def playback_identity(media_id: uuid.UUID, db: Session = Depends(get_db)):
+    row = db.get(Media, media_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+    try:
+        row = await resolve_external_ids(db, row)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"External identity resolution failed: {exc}")
+    return {
+        "media_id": str(row.id),
+        "media_type": row.media_type,
+        "canonical_id": row.canonical_id,
+        "imdb_id": row.imdb_id,
+        "tmdb_id": row.tmdb_id,
+        "tvdb_id": row.tvdb_id,
+        "season": row.season,
+        "episode": row.episode,
+    }
 
 
 @router.get("/{media_id}")
