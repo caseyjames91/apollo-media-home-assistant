@@ -542,9 +542,22 @@ class ApolloMediaCard extends HTMLElement {
           show_target: showTarget
         })
       : "";
-    const playTarget = jellyfinId
-      ? this.apolloPluginUrl("play_resolved", { source: "jellyfin", item_id: jellyfinId, title: episodeTitle })
-      : (imdb ? this.apolloPluginUrl("play_external", commonRemote) : "");
+    const playTarget = imdb
+      ? this.apolloPluginUrl("play_resolved", {
+          source: "ams",
+          imdb,
+          media_type: remoteMediaType,
+          season,
+          episode,
+          title: episodeTitle
+        })
+      : (jellyfinId
+          ? this.apolloPluginUrl("play_resolved", {
+              source: "jellyfin",
+              item_id: jellyfinId,
+              title: episodeTitle
+            })
+          : "");
     return {
       title: displayTitle,
       series_title: isEpisode ? (seriesTitle || displayTitle) : "",
@@ -578,7 +591,7 @@ class ApolloMediaCard extends HTMLElement {
       playTarget,
       file: playTarget,
       is_folder: false,
-      in_library: Boolean(jellyfinId),
+      in_library: Boolean(item?.available_locally),
       watched: false,
       presentation_context: "continue",
       ams_media_id: String(item?.media_id || ""),

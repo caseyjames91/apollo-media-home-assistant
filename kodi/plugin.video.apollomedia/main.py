@@ -495,9 +495,12 @@ def add_discovery_episode(episode, imdb_id, local=None, native_local=False):
             )[1],
             card_play_target=plugin_url(
                 action="play_resolved",
-                source="jellyfin",
-                item_id=local.get("Id") or "",
-                title=local.get("Name") or title,
+                source="ams",
+                imdb=imdb_id,
+                media_type="series",
+                season=season_number,
+                episode=episode_number,
+                title=title,
             ),
         )
     else:
@@ -1193,9 +1196,28 @@ def remote_active_playback():
         if not player.isPlayingVideo():
             xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
             return
-        remote = bool(selected and player.getPlayingFile() == selected.get("url"))
+        playing_file = player.getPlayingFile()
+        remote = bool(selected and playing_file == selected.get("url"))
+
+        # AMS local playback no longer depends on a Jellyfin item/unique ID.
+        # Match the resolved device playback path recorded by active_media.
+        is_ams_local = bool(
+            local
+            and local.get("source") == "local"
+            and local.get("transport") == "ams"
+            and local.get("playback_path")
+            and playing_file == local.get("playback_path")
+        )
+
+        # Transitional compatibility for legacy Jellyfin-resolved sessions.
         local_id = player.getVideoInfoTag().getUniqueID("jellyfin")
-        is_local = bool(local and local.get("source") == "local" and local_id and local_id == local.get("jellyfin_item_id"))
+        is_jellyfin_local = bool(
+            local
+            and local.get("source") == "local"
+            and local_id
+            and local_id == local.get("jellyfin_item_id")
+        )
+        is_local = is_ams_local or is_jellyfin_local
         if not remote and not is_local:
             xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
             return
@@ -1234,11 +1256,28 @@ def remote_active_playback():
     video_info = str(player_technical.get("video") or current_stream.get("video") or "")
     audio_info = str(player_technical.get("audio") or current_stream.get("audio") or "")
     jellyfin_item_id = str(data.get("jellyfin_item_id") or "")
-    local_target = plugin_url(
-        action="remote_play_jellyfin",
-        item_id=jellyfin_item_id,
-        title=title,
-    ) if jellyfin_item_id else ""
+    local_target = ""
+    if imdb_id and ams.configured(ADDON) and ams.device_key(ADDON):
+        try:
+            local_decision = ams.resolve_playback_for_identity(
+                ADDON, imdb_id, media_type, season, episode
+            )
+            local_path = str((local_decision or {}).get("playback_path") or "").strip()
+            if str((local_decision or {}).get("mode") or "") == "local" and local_path:
+                local_target = plugin_url(
+                    action="play_resolved",
+                    source="ams",
+                    imdb=imdb_id,
+                    media_type=media_type,
+                    season=season,
+                    episode=episode,
+                    title=title,
+                )
+        except Exception as exc:
+            xbmc.log(
+                f"[Apollo Media] AMS active local-target lookup failed: {exc}",
+                xbmc.LOGWARNING,
+            )
 
     xbmcplugin.addDirectoryItem(HANDLE, plugin_url(
         action="apollo_active_media", apollo_identity=identity, apollo_remote="1" if remote else "0",
@@ -1536,15 +1575,40 @@ def add_ams_continue_item(row, card_playback=False):
         show_target=show_target,
     ) if is_episode and imdb_id else ""
 
-    if jellyfin_item_id:
+    if imdb_id:
         play_path = plugin_url(
-            action="play_resolved" if card_playback else "play_jellyfin",
-            source="jellyfin", item_id=jellyfin_item_id, title=title,
-            apollo_media_type="episode" if is_episode else "movie", presentation_context="continue",
-            imdb=imdb_id, jellyfin_item_id=jellyfin_item_id, show_title=show_title, season=season, episode=episode,
-            in_library="1", show_target=show_target, season_target=season_target,
-            remote_auto_target=remote_auto, remote_choose_target=remote_choose,
-            remove_target=plugin_url(action="remove_continue", source="jellyfin", item_id=jellyfin_item_id, imdb=imdb_id, season=season, episode=episode),
+            action="play_resolved",
+            source="ams",
+            imdb=imdb_id,
+            media_type=remote_type,
+            title=title,
+            apollo_media_type="episode" if is_episode else "movie",
+            presentation_context="continue",
+            jellyfin_item_id=jellyfin_item_id,
+            show_title=show_title,
+            season=season,
+            episode=episode,
+            in_library="1" if row.get("available_locally") else "0",
+            show_target=show_target,
+            season_target=season_target,
+            remote_auto_target=remote_auto,
+            remote_choose_target=remote_choose,
+            remove_target=plugin_url(
+                action="remove_continue",
+                source="jellyfin" if jellyfin_item_id else "apollo",
+                item_id=jellyfin_item_id,
+                imdb=imdb_id,
+                season=season,
+                episode=episode,
+            ),
+        )
+    elif jellyfin_item_id:
+        # Identity-less legacy row only; AMS itself requires canonical identity.
+        play_path = plugin_url(
+            action="play_resolved",
+            source="jellyfin",
+            item_id=jellyfin_item_id,
+            title=title,
         )
     else:
         play_path = remote_auto
@@ -1793,12 +1857,24 @@ def add_remote_jellyfin_item(video, card_playback=False, episode_hint=None,
 
     card_play_target = ""
     if not is_series:
-        card_play_target = plugin_url(
-            action="play_resolved",
-            source="jellyfin",
-            item_id=item_id,
-            title=title,
-        )
+        if imdb_id:
+            card_play_target = plugin_url(
+                action="play_resolved",
+                source="ams",
+                imdb=imdb_id,
+                media_type="series" if item_type == "Episode" else "movie",
+                season=season,
+                episode=episode,
+                title=title,
+            )
+        else:
+            # Transitional identity-less legacy item.
+            card_play_target = plugin_url(
+                action="play_resolved",
+                source="jellyfin",
+                item_id=item_id,
+                title=title,
+            )
 
     route_fields = _card_route_fields(
         media_type=card_media_type,
@@ -2114,8 +2190,11 @@ def show_episodes(series_id, season_id, imdb_id="", title="", native_local=False
                 )
                 card_play_target = plugin_url(
                     action="play_resolved",
-                    source="jellyfin",
-                    item_id=media.ids.jellyfin,
+                    source="ams",
+                    imdb=imdb_id,
+                    media_type="series",
+                    season=media.season or 0,
+                    episode=media.episode or 0,
                     title=media.title,
                 )
                 target = plugin_url(
@@ -2265,10 +2344,13 @@ def add_external_progress(entry, card_playback=False):
     )
     card_play_target = plugin_url(
         action="play_resolved",
-        source="jellyfin",
-        item_id=local_item_id,
-        title=(local_video or {}).get("Name") or title,
-    ) if local_item_id else ""
+        source="ams",
+        imdb=imdb_id,
+        media_type=media_type,
+        season=season,
+        episode=episode,
+        title=title,
+    ) if imdb_id else ""
 
     route_fields = _card_route_fields(
         media_type="episode" if episode else "movie",
@@ -2997,7 +3079,7 @@ def show_on_tv(path):
 
 def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
                            season=0, episode=0, title="", resume_item_id="",
-                           resume_mode=""):
+                           resume_mode="", start_position=None, start_duration=None):
     """Resolve Jellyfin or remote media into the same final Kodi ListItem."""
     season = int(season or 0); episode = int(episode or 0)
 
@@ -3013,7 +3095,12 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
         position = float(saved.get("position") or 0)
         duration = float(saved.get("duration") or 0)
 
-        if resume_mode == "start_over":
+        # A headless source transition supplies the player's current absolute
+        # position. It must win over a potentially older persisted progress row.
+        if start_position not in (None, ""):
+            position = max(0.0, float(start_position or 0))
+            duration = max(0.0, float(start_duration or duration or 0))
+        elif resume_mode == "start_over":
             position = 0
 
         ams_decision = ams.resolve_playback_for_identity(
@@ -3030,7 +3117,7 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
             )
             return resolved_playback_item(
                 "remote", "", imdb_id, media_type, season, episode, title,
-                "", resume_mode
+                "", resume_mode, start_position, start_duration
             )
 
         mode = str(ams_decision.get("mode") or "")
@@ -3044,7 +3131,7 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
             )
             return resolved_playback_item(
                 "remote", "", imdb_id, media_type, season, episode, title,
-                "", resume_mode
+                "", resume_mode, start_position, start_duration
             )
 
         playback_path = str(
@@ -3208,7 +3295,8 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
         streams=external_streams(token,imdb_id,media_type,season,episode)
         if not streams: raise RuntimeError("No cached TorBox source was found")
         position,duration,session_mode=resolve_remote_position(
-            resume_mode,None,None,lambda: jellyfin_resume(resume_item_id,imdb_id,media_type,season,episode,title))
+            resume_mode,start_position,start_duration,
+            lambda: jellyfin_resume(resume_item_id,imdb_id,media_type,season,episode,title))
         source_session.save(streams,imdb_id,media_type,season,episode,title,position,duration,resume_item_id,session_mode)
         selected=source_session.current()
         if not selected: raise RuntimeError("No unflagged stream is available")
@@ -3223,11 +3311,13 @@ def resolved_playback_item(source, item_id="", imdb_id="", media_type="movie",
     raise RuntimeError(f"Unsupported Apollo playback source: {source}")
 
 def play_resolved(source, item_id="", imdb_id="", media_type="movie", season=0,
-                  episode=0, title="", resume_item_id="", resume_mode=""):
+                  episode=0, title="", resume_item_id="", resume_mode="",
+                  start_position=None, start_duration=None):
     """The single card playback entry point."""
     try:
         xbmcplugin.setResolvedUrl(HANDLE, True, resolved_playback_item(
-            source,item_id,imdb_id,media_type,season,episode,title,resume_item_id,resume_mode))
+            source, item_id, imdb_id, media_type, season, episode, title,
+            resume_item_id, resume_mode, start_position, start_duration))
     except Exception as exc:
         xbmc.log(f"[Apollo Media] Unified playback failed: {exc}", xbmc.LOGERROR)
         notify(f"Playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
@@ -3550,9 +3640,21 @@ def route():
         "detect_compatibility": detect_device_compatibility,
     }
     if action == "play_resolved":
-        play_resolved(values.get("source", ""), values.get("item_id", ""), values.get("imdb", ""),
-                      values.get("media_type", "movie"), values.get("season", "0"), values.get("episode", "0"),
-                      values.get("title", ""), values.get("resume_item_id", ""), values.get("resume_mode", ""))
+        raw_start = values.get("start_position")
+        raw_duration = values.get("start_duration")
+        play_resolved(
+            values.get("source", ""),
+            values.get("item_id", ""),
+            values.get("imdb", ""),
+            values.get("media_type", "movie"),
+            values.get("season", "0"),
+            values.get("episode", "0"),
+            values.get("title", ""),
+            values.get("resume_item_id", ""),
+            values.get("resume_mode", ""),
+            float(raw_start) if raw_start not in (None, "") else None,
+            float(raw_duration) if raw_duration not in (None, "") else None,
+        )
     elif action == "play_discovery":
         play_discovery(values.get("imdb", ""), values.get("title", ""))
     elif action == "play_jellyfin":

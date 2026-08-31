@@ -29,7 +29,8 @@ class GlobalEpisodeDetailTests(unittest.TestCase):
         block = MAIN[start:end]
         self.assertIn('action="play_jellyfin_native" if native_local else "play_jellyfin"', block)
         self.assertIn('action="play_resolved"', block)
-        self.assertIn('source="jellyfin"', block)
+        self.assertIn('source="ams"', block)
+        self.assertIn('action="play_jellyfin_native" if native_local else "play_jellyfin"', block)
 
     def test_discovery_local_episode_has_card_safe_target(self):
         start = MAIN.index("def add_discovery_episode(")
