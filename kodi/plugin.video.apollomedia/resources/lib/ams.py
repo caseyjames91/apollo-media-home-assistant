@@ -112,15 +112,9 @@ def report_progress(addon, imdb_id, media_type, season, episode, title, position
     return True
 
 
-def continue_watching(addon, local_progress=None, sync_jellyfin=True):
+def continue_watching(addon, local_progress=None):
     if not configured(addon):
         return None
-    if sync_jellyfin:
-        try:
-            _request(addon, "jellyfin/sync", method="POST", timeout=12)
-        except Exception:
-            # Last-known-good AMS state remains useful when Jellyfin is offline.
-            pass
     if local_progress:
         try:
             import_progress(addon, local_progress)
@@ -134,6 +128,26 @@ def continue_watching(addon, local_progress=None, sync_jellyfin=True):
 def device_key(addon):
     """Return the AMS device key configured for this Kodi instance."""
     return str(addon.getSettingString("ams_device_key") or "").strip()
+
+
+
+def media(addon, media_type="", available_locally=None):
+    """Return Apollo media rows using AMS as the catalog authority."""
+    if not configured(addon):
+        return []
+
+    params = {}
+    if media_type:
+        params["media_type"] = str(media_type)
+    if available_locally is not None:
+        params["available_locally"] = "true" if available_locally else "false"
+
+    path = "media"
+    if params:
+        path += "?" + urlencode(params)
+
+    rows = _request(addon, path, timeout=10) or []
+    return rows if isinstance(rows, list) else []
 
 
 def find_media(addon, imdb_id, media_type="movie", season=0, episode=0):

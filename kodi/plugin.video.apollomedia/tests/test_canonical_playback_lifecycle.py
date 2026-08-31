@@ -20,8 +20,9 @@ class CanonicalPlaybackLifecycleTests(unittest.TestCase):
     def test_both_resolvers_create_playback_session(self):
         source = ROOT.joinpath("main.py").read_text(encoding="utf-8")
         resolver = source[source.index("def resolved_playback_item("):source.index("\ndef play_resolved(", source.index("def resolved_playback_item("))]
-        self.assertIn('playback_session.save(\n            "jellyfin"', resolver)
-        self.assertIn('playback_session.save(\n            "remote"', resolver)
+        compact = ''.join(resolver.split())
+        self.assertIn('playback_session.save("ams_local"', compact)
+        self.assertIn('playback_session.save("remote"', compact)
 
 if __name__ == "__main__":
     unittest.main()

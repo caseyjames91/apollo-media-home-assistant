@@ -1,41 +1,32 @@
-import re
 import unittest
 from pathlib import Path
 
-
-MAIN = Path(__file__).resolve().parents[1] / "main.py"
-SOURCE = MAIN.read_text(encoding="utf-8")
-
-
-def function_source(name):
-    match = re.search(
-        rf"^def {re.escape(name)}\(.*?(?=^def |\Z)",
-        SOURCE,
-        re.MULTILINE | re.DOTALL,
-    )
-    if not match:
-        raise AssertionError(f"Could not find function {name}")
-    return match.group(0)
+ROOT = Path(__file__).parents[1]
+MAIN = (ROOT / "main.py").read_text(encoding="utf-8")
 
 
-class OptionalJellyfinDiscoveryTests(unittest.TestCase):
-    def test_season_discovery_does_not_fail_with_jellyfin(self):
-        source = function_source("discovery_seasons")
-        self.assertIn("series_details(imdb_id)", source)
-        self.assertIn("if jf.ready:", source)
-        self.assertIn("try:", source)
-        self.assertIn("jf.find_series(imdb_id)", source)
-        self.assertIn("Optional Jellyfin season enrichment failed", source)
-        self.assertIn("for season_number in seasons:", source)
+class ApolloDiscoveryTests(unittest.TestCase):
+    def test_season_discovery_has_no_jellyfin_dependency(self):
+        start = MAIN.index("def discovery_seasons(")
+        end = MAIN.index("def discovery_episodes(", start)
+        body = MAIN[start:end]
 
-    def test_episode_discovery_does_not_fail_with_jellyfin(self):
-        source = function_source("discovery_episodes")
-        self.assertIn("series_details(imdb_id)", source)
-        self.assertIn("if jf.ready:", source)
-        self.assertIn("try:", source)
-        self.assertIn("jf.find_series(imdb_id)", source)
-        self.assertIn("Optional Jellyfin episode enrichment failed", source)
-        self.assertIn("for episode in discovered:", source)
+        self.assertIn("series_details(imdb_id)", body)
+        self.assertIn("add_discovery_season(", body)
+        self.assertNotIn("jellyfin", body.lower())
+        self.assertNotIn("require_jellyfin", body)
+        self.assertNotIn("jf.", body)
+
+    def test_episode_discovery_has_no_jellyfin_dependency(self):
+        start = MAIN.index("def discovery_episodes(")
+        end = MAIN.index("def show_seasons(", start)
+        body = MAIN[start:end]
+
+        self.assertIn("series_details(imdb_id)", body)
+        self.assertIn("add_discovery_episode(", body)
+        self.assertNotIn("jellyfin", body.lower())
+        self.assertNotIn("require_jellyfin", body)
+        self.assertNotIn("jf.", body)
 
 
 if __name__ == "__main__":

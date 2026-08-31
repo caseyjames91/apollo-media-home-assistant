@@ -307,7 +307,8 @@ script:
         required: true
     sequence:
       - condition: template
-        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=remote_play_jellyfin') }}"
+        value_template: "{{ (path | default('', true) | string).startswith('plugin://plugin.video.apollomedia/?action=play_resolved')
+             and 'source=ams' in (path | default('', true) | string) }}"
       - action: kodi.call_method
         target:
           entity_id: "{{ player_entity }}"

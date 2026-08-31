@@ -64,29 +64,7 @@
         <setting id="detected_device" type="string" label="32168"><level>0</level><default>Not detected yet</default><constraints><allowempty>true</allowempty></constraints><control type="edit" format="string"><heading>32168</heading></control></setting>
       </group>
     </category>
-    <category id="jellyfin" label="32000" help="32005">
-      <group id="1" label="32001">
-        <setting id="jellyfin_url" type="string" label="32002" help="32006">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="edit" format="string"><heading>32002</heading></control>
-        </setting>
-        <setting id="jellyfin_token" type="string" label="32003" help="32007">
-          <level>2</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="edit" format="string"><heading>32003</heading><hidden>true</hidden></control>
-        </setting>
-        <setting id="jellyfin_user_id" type="string" label="32004" help="32008">
-          <level>2</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="edit" format="string"><heading>32004</heading></control>
-        </setting>
-      </group>
-    </category>
-    <category id="ams" label="32200" help="32205">
+<category id="ams" label="32200" help="32205">
       <group id="1" label="32201">
         <setting id="ams_url" type="string" label="32202" help="32206">
           <level>0</level>

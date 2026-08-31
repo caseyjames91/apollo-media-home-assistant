@@ -9,7 +9,7 @@ class Integration(Base):
     __table_args__ = (UniqueConstraint("kind", "name", name="uq_integration_kind_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # sonarr/radarr/jellyfin/tmdb
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # sonarr/radarr/tmdb
     name: Mapped[str] = mapped_column(String(100), default="default", nullable=False)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)

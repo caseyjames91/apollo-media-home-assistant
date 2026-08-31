@@ -17,14 +17,15 @@ class SourceHandoffStateTests(unittest.TestCase):
         self.assertNotIn("Addons.ExecuteAddon", block)
         self.assertNotIn("&resume_mode=live", block)
 
-    def test_local_resolver_does_not_request_live_post_avstart_seek(self):
-        start = MAIN.index("def remote_play_jellyfin(")
-        end = MAIN.index("\ndef ", start + 5)
+    def test_local_resolver_uses_ams_resume_point(self):
+        start = MAIN.index("def resolved_playback_item(")
+        end = MAIN.index("def play_resolved(", start)
         block = MAIN[start:end]
-        self.assertIn('resume_mode="resume" if position > 0 else "native"', block)
-        self.assertIn("tag.setResumePoint(position, duration)", block)
-        self.assertIn("xbmcplugin.setResolvedUrl(HANDLE, True, item)", block)
-        self.assertNotIn("xbmc.Player().play(stream, item)", block)
+        self.assertIn('source == "ams"', block)
+        self.assertIn("external_item(", block)
+        self.assertIn("position,", block)
+        self.assertIn("duration,", block)
+        self.assertNotIn("remote_play_jellyfin", block)
 
     def test_picker_current_requires_actual_remote_playing_file(self):
         start = MAIN.index("def remote_stream_list(")

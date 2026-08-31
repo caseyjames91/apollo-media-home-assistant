@@ -309,9 +309,8 @@ script:
       - condition: template
         value_template: >-
           {% set p = path | default('', true) | string %}
-          {{ p.startswith('plugin://plugin.video.apollomedia/?action=remote_play_jellyfin')
-             or (p.startswith('plugin://plugin.video.apollomedia/?action=play_resolved')
-                 and 'source=ams' in p) }}
+          {{ p.startswith('plugin://plugin.video.apollomedia/?action=play_resolved')
+             and 'source=ams' in p }}
       - action: kodi.call_method
         target:
           entity_id: "{{ player_entity }}"

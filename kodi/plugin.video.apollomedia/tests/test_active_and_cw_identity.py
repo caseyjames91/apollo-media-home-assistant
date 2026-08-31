@@ -30,12 +30,13 @@ class ActiveAndCWIdentityTests(unittest.TestCase):
         self.assertIn("card_play_target=card_play_target", block)
         self.assertIn("resume_item_id=local_item_id", block)
 
-    def test_show_episodes_backfills_series_imdb(self):
-        start = MAIN.index("def show_episodes(")
+    def test_discovery_episodes_uses_canonical_imdb(self):
+        start = MAIN.index("def discovery_episodes(")
         end = MAIN.index("\ndef ", start + 5)
         block = MAIN[start:end]
-        self.assertIn("if not imdb_id and series_id:", block)
-        self.assertIn('series_ids.get("Imdb")', block)
+        self.assertIn("series_details(imdb_id)", block)
+        self.assertNotIn("jellyfin", block.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

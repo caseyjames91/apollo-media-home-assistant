@@ -13,7 +13,6 @@ from app.models.integration import Integration
 from app.models.media import Media
 from app.models.profile import Profile
 from app.models.progress import Progress
-from app.services.jellyfin import auth_headers
 from app.ui import ingress_url, local_time_html, page
 
 router = APIRouter(tags=["debug"])
@@ -29,9 +28,9 @@ def _hms(seconds: float) -> str:
 
 def _media_card(request: Request, media: Media, progress: Progress | None = None) -> str:
     title = escape(media.title or "Untitled")
-    image = ""
-    if media.jellyfin_item_id:
-        src = escape(ingress_url(request, f"jellyfin/image/{media.jellyfin_item_id}"))
+    poster_url = str(media.poster_url or "").strip()
+    if poster_url:
+        src = escape(poster_url)
         image = f'<img class="poster" src="{src}" alt="" loading="lazy">'
     else:
         image = '<div class="poster"></div>'
@@ -55,8 +54,6 @@ def _media_card(request: Request, media: Media, progress: Progress | None = None
         ids.append(f"IMDb: {escape(media.imdb_id)}")
     if media.tmdb_id:
         ids.append(f"TMDB: {escape(media.tmdb_id)}")
-    if media.jellyfin_item_id:
-        ids.append(f"Jellyfin: {escape(media.jellyfin_item_id)}")
 
     return f'''<article class="media">{image}<div class="media-body">
       <h3>{episode}{title}</h3>
@@ -129,22 +126,3 @@ def browser(
     pager = f'<div class="pager">{page_link(page_num-1,"Previous")}<span class="muted">Page {page_num} of {total_pages} · {total} items</span>{page_link(page_num+1,"Next")}</div>'
     body = ''.join(cards) or '<div class="card"><p class="muted">No cached items in this view.</p></div>'
     return page(f'<h1>Apollo Cache Browser</h1>{nav}<h2>{heading}</h2>{pager}<div class="grid">{body}</div>{pager}')
-
-
-@router.get("/jellyfin/image/{item_id}")
-async def jellyfin_image(item_id: str, db: Session = Depends(get_db)):
-    integration = db.scalar(select(Integration).where(Integration.kind == "jellyfin"))
-    if integration is None or not integration.enabled or not integration.access_token:
-        raise HTTPException(status_code=404, detail="Jellyfin not configured")
-    url = f"{integration.base_url.rstrip('/')}/Items/{item_id}/Images/Primary"
-    try:
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers=auth_headers(integration.access_token), params={"maxWidth": 360, "quality": 88})
-        if resp.status_code == 404:
-            raise HTTPException(status_code=404, detail="No artwork")
-        resp.raise_for_status()
-        return Response(content=resp.content, media_type=resp.headers.get("content-type", "image/jpeg"), headers={"Cache-Control": "private, max-age=3600"})
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Artwork fetch failed: {exc}") from exc

@@ -111,10 +111,10 @@ class RemoteResumeSemanticsTests(unittest.TestCase):
         namespace["report"](Player(), "progress")
         self.assertEqual(saves[-1][0][5], 600)
 
-    def test_local_jellyfin_path_is_unchanged(self):
+    def test_legacy_local_jellyfin_path_is_removed(self):
         source = ADDON_ROOT.joinpath("main.py").read_text(encoding="utf-8")
-        self.assertIn("def play_jellyfin(item_id, title, start_over=False):", source)
-        self.assertIn('item.setProperty("StartOffset", "0")', source)
+        self.assertNotIn("def play_jellyfin(", source)
+        self.assertNotIn("def remote_play_jellyfin(", source)
 
 
 if __name__ == "__main__":

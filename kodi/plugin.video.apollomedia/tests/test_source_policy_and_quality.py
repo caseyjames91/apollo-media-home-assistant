@@ -14,7 +14,9 @@ class SourcePolicyAndQualityTests(unittest.TestCase):
         self.assertIn('await this.playApolloItem(this.selectedTitle, resumable ? "resume" : null, "local")', CARD)
 
     def test_remote_to_local_native_handoff_exists(self):
-        self.assertIn("def remote_play_jellyfin(item_id, title=\"\", resume_mode=\"\", start_position=None, start_duration=None):", MAIN)
+        self.assertNotIn("def remote_play_jellyfin(", MAIN)
+        self.assertIn('action=play_resolved', HA)
+        self.assertIn('source=ams', HA)
         self.assertIn("apollo_switch_local:", HA)
         self.assertIn("data-now-playing-switch-local", CARD)
         block = HA.split("apollo_switch_local:", 1)[1].split("\n  apollo_play:", 1)[0]

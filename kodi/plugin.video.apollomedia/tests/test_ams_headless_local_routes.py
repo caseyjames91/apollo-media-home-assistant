@@ -7,6 +7,7 @@ REPO = Path(__file__).parents[3]
 MAIN = (ROOT / "main.py").read_text(encoding="utf-8")
 CARD = (REPO / "card" / "apollo-media-card.js").read_text(encoding="utf-8")
 HA = (REPO / "home-assistant-prototype.yaml").read_text(encoding="utf-8")
+AMS_LIB = (ROOT / "resources" / "lib" / "ams.py").read_text(encoding="utf-8")
 
 
 class AmsHeadlessLocalRouteTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
 
     def test_ams_resolver_accepts_headless_absolute_position(self):
         start = MAIN.index("def resolved_playback_item(")
-        end = MAIN.index("def play_jellyfin(", start)
+        end = MAIN.index("def play_resolved(", start)
         body = MAIN[start:end]
         self.assertIn("start_position=None", body)
         self.assertIn("start_duration=None", body)
@@ -47,14 +48,14 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
 
     def test_card_ams_continue_uses_ams_resolver(self):
         start = CARD.index("  amsContinueItem(item) {")
-        end = CARD.index("  async amsArtworkBlobUrl(", start)
+        end = CARD.index("  async loadAmsContinueWatching(", start)
         body = CARD[start:end]
         self.assertIn('source: "ams"', body)
         self.assertIn("item?.available_locally", body)
 
     def test_card_ams_continue_uses_ams_metadata(self):
         start = CARD.index("  amsContinueItem(item) {")
-        end = CARD.index("  async amsArtworkBlobUrl(", start)
+        end = CARD.index("  async loadAmsContinueWatching(", start)
         body = CARD[start:end]
         self.assertIn("item?.poster_url", body)
         self.assertIn("item?.backdrop_url", body)
@@ -63,8 +64,22 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
         self.assertIn("poster: posterUrl", body)
         self.assertIn("fanart: backdropUrl", body)
         self.assertIn("plot: overview", body)
-        self.assertIn("ams_artwork_id: \"\"", body)
+        self.assertNotIn("ams_artwork_id", body)
         self.assertNotIn("artwork_jellyfin_item_id", body)
+
+    def test_card_continue_watching_does_not_sync_jellyfin(self):
+        start = CARD.index("  async loadAmsContinueWatching(")
+        end = CARD.index("  scheduleAmsContinueWatchingLoad(", start)
+        body = CARD[start:end]
+        self.assertNotIn("jellyfin/sync", body)
+        self.assertNotIn("sync: true", body)
+
+    def test_kodi_continue_watching_does_not_sync_jellyfin(self):
+        start = AMS_LIB.index("def continue_watching(")
+        end = AMS_LIB.index("def device_key(", start)
+        body = AMS_LIB[start:end]
+        self.assertNotIn("jellyfin/sync", body)
+        self.assertNotIn("sync_jellyfin", body)
 
     def test_ha_local_switch_accepts_ams_play_resolved(self):
         start = HA.index("  apollo_switch_local:")
@@ -73,8 +88,9 @@ class AmsHeadlessLocalRouteTests(unittest.TestCase):
         self.assertIn("action=play_resolved", body)
         self.assertIn("source=ams", body)
 
-    def test_legacy_jellyfin_headless_route_remains_during_transition(self):
-        self.assertIn("def remote_play_jellyfin(", MAIN)
+    def test_legacy_jellyfin_headless_route_is_removed(self):
+        self.assertNotIn("def remote_play_jellyfin(", MAIN)
+        self.assertNotIn('action == "remote_play_jellyfin"', MAIN)
 
 
 if __name__ == "__main__":

@@ -23,11 +23,12 @@ class AmsLocalPlaybackTests(unittest.TestCase):
         self.assertIn('"ams_local"', MAIN)
 
     def test_normal_local_route_uses_unified_resolver(self):
-        start = MAIN.index('def play_jellyfin(')
-        end = MAIN.index('def remote_play_jellyfin(', start)
+        start = MAIN.index('def resolved_playback_item(')
+        end = MAIN.index('def play_resolved(', start)
         body = MAIN[start:end]
-        self.assertIn('play_resolved(', body)
-        self.assertNotIn('jf.stream_url(', body)
+        self.assertIn('source == "ams"', body)
+        self.assertIn('ams.resolve_playback_for_identity(', body)
+        self.assertNotIn('source == "jellyfin"', body)
 
 
 if __name__ == "__main__":

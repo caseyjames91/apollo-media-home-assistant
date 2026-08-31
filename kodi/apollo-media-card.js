@@ -285,7 +285,6 @@ class ApolloMediaCard extends HTMLElement {
     this._amsAddonSlug = "";
     this._amsProfileId = "";
     this._amsLastContinueLoad = 0;
-    this._amsArtworkUrls = new Map();
   }
 
   set hass(hass) {
@@ -379,10 +378,6 @@ class ApolloMediaCard extends HTMLElement {
     this.resetKodiTargetState();
     if (this._refreshRequestedTimer) window.clearTimeout(this._refreshRequestedTimer);
     if (this._refreshSuccessTimer) window.clearTimeout(this._refreshSuccessTimer);
-    for (const url of this._amsArtworkUrls?.values?.() || []) {
-      try { URL.revokeObjectURL(url); } catch (_) {}
-    }
-    this._amsArtworkUrls?.clear?.();
   }
 
   getCardSize() {
@@ -515,7 +510,6 @@ class ApolloMediaCard extends HTMLElement {
     const displayTitle = isEpisode ? (seriesTitle || episodeTitle) : episodeTitle;
     const imdb = String(item?.imdb_id || "");
     const tmdb = String(item?.tmdb_id || "");
-    const jellyfinId = String(item?.jellyfin_item_id || "");
     const posterUrl = this.artworkUrl(item?.poster_url || "");
     const backdropUrl = this.artworkUrl(item?.backdrop_url || "");
     const overview = String(item?.overview || "");
@@ -526,8 +520,7 @@ class ApolloMediaCard extends HTMLElement {
       media_type: remoteMediaType,
       season,
       episode,
-      title: episodeTitle,
-      resume_item_id: jellyfinId
+      title: episodeTitle
     };
     const showTarget = isEpisode && imdb
       ? this.apolloPluginUrl("discovery_seasons", { imdb, title: seriesTitle || displayTitle, native_local: "1" })
@@ -554,20 +547,13 @@ class ApolloMediaCard extends HTMLElement {
           episode,
           title: episodeTitle
         })
-      : (jellyfinId
-          ? this.apolloPluginUrl("play_resolved", {
-              source: "jellyfin",
-              item_id: jellyfinId,
-              title: episodeTitle
-            })
-          : "");
+      : "";
     return {
       title: displayTitle,
       series_title: isEpisode ? (seriesTitle || displayTitle) : "",
       episode_title: isEpisode ? episodeTitle : "",
       subtitle: isEpisode ? `S${season} E${episode}${episodeTitle ? ` · ${episodeTitle}` : ""}` : "",
       poster: posterUrl,
-      ams_artwork_id: "",
       fanart: backdropUrl,
       plot: overview,
       year,
@@ -579,12 +565,10 @@ class ApolloMediaCard extends HTMLElement {
       resume_duration: Number(item?.duration_seconds || 0),
       imdb,
       tmdb,
-      jellyfin_item_id: jellyfinId,
       browseTarget: showTarget,
       seasonTarget,
       removeTarget: this.apolloPluginUrl("remove_continue", {
-        source: "jellyfin",
-        item_id: jellyfinId,
+        source: "apollo",
         imdb,
         season,
         episode
@@ -602,59 +586,19 @@ class ApolloMediaCard extends HTMLElement {
     };
   }
 
-  async amsArtworkBlobUrl(itemId, retryAuth = true) {
-    const key = String(itemId || "").trim();
-    if (!key) return "";
-    if (this._amsArtworkUrls.has(key)) return this._amsArtworkUrls.get(key);
-    const base = await this.ensureAmsIngressBase();
-    const response = await fetch(`${base}jellyfin/image/${encodeURIComponent(key)}`, {
-      credentials: "same-origin",
-      cache: "force-cache"
-    });
-    if (response.status === 401 && retryAuth) {
-      this._amsIngressBase = "";
-      this._amsAddonSlug = "";
-      await this.ensureAmsIngressBase();
-      return this.amsArtworkBlobUrl(key, false);
-    }
-    if (!response.ok) throw new Error(`AMS artwork ${response.status}`);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    this._amsArtworkUrls.set(key, url);
-    return url;
-  }
-
-  async hydrateAmsArtwork(items) {
-    const ids = [...new Set((items || []).map(item => String(item?.ams_artwork_id || "")).filter(Boolean))];
-    await Promise.all(ids.map(async id => {
-      try { await this.amsArtworkBlobUrl(id); } catch (error) {
-        console.warn("Apollo AMS artwork unavailable", id, error);
-      }
-    }));
-    return (items || []).map(item => {
-      const id = String(item?.ams_artwork_id || "");
-      return id && this._amsArtworkUrls.has(id)
-        ? { ...item, poster: this._amsArtworkUrls.get(id) }
-        : item;
-    });
-  }
-
-  async loadAmsContinueWatching({ sync = false } = {}) {
+  async loadAmsContinueWatching() {
     if (this.config?.ams_enabled === false) return false;
     if (this._amsContinueLoading) {
-      this._amsContinueQueued = this._amsContinueQueued || sync;
+      this._amsContinueQueued = true;
       return { success: true, changed: false, queued: true };
     }
     this._amsContinueLoading = true;
     try {
-      if (sync) {
-        await this.amsFetch("jellyfin/sync", { method: "POST" });
-      }
       const profileId = await this.resolveAmsProfileId();
       const rows = await this.amsFetch(`profiles/${encodeURIComponent(profileId)}/continue-watching`);
       if (!Array.isArray(rows)) throw new Error("AMS Continue Watching response is not a list");
       const mapped = this.dedupeApolloItems(rows.map(item => this.amsContinueItem(item)));
-      const hydrated = await this.hydrateAmsArtwork(mapped);
+
       const previousSignature = JSON.stringify((this._amsContinueItems || []).map(item => [
         item.ams_media_id, item.ams_updated_at, item.progress, item.poster
       ]));
@@ -662,7 +606,7 @@ class ApolloMediaCard extends HTMLElement {
         item.ams_media_id, item.ams_updated_at, item.progress, item.poster
       ]));
       const changed = !this._amsContinueReady || previousSignature !== nextSignature;
-      this._amsContinueItems = hydrated;
+      this._amsContinueItems = mapped;
       this._amsContinueReady = true;
       this._amsLastContinueLoad = Date.now();
       const continueRow = this.mediaRows?.find(row => row.id === "continue");
@@ -680,9 +624,8 @@ class ApolloMediaCard extends HTMLElement {
     } finally {
       this._amsContinueLoading = false;
       if (this._amsContinueQueued) {
-        const queuedSync = this._amsContinueQueued;
         this._amsContinueQueued = false;
-        window.setTimeout(() => this.loadAmsContinueWatching({ sync: Boolean(queuedSync) }), 100);
+        window.setTimeout(() => this.loadAmsContinueWatching(), 100);
       }
     }
   }
@@ -758,7 +701,6 @@ class ApolloMediaCard extends HTMLElement {
         resume_duration: Number((file.resume || {}).total ?? (file.resume || {}).Total ?? 0),
         imdb: params.imdb || file.imdbnumber || "",
         tmdb: params.tmdb || "",
-        jellyfin_item_id: params.jellyfin_item_id || "",
         browseTarget: params.show_target || (canonicalType === "show" ? (file.file || "") : ""),
         seasonTarget: params.season_target || (canonicalType === "season" ? (file.file || "") : ""),
         removeTarget: params.remove_target || "",
@@ -925,7 +867,7 @@ class ApolloMediaCard extends HTMLElement {
       this._refreshRequested = true;
       this._refreshSuccessUntil = 0;
       this.updateRefreshControl();
-      Promise.resolve(this.loadAmsContinueWatching({ sync: true }))
+      Promise.resolve(this.loadAmsContinueWatching())
         .then(result => {
           this._refreshRequested = false;
           if (!result?.success) throw new Error("AMS refresh failed");
@@ -2593,7 +2535,7 @@ class ApolloMediaCard extends HTMLElement {
         // AMS clients reconcile directly against profile state. Do not touch
         // the legacy shared HA Continue Watching sensor, which would wake and
         // rerender every Apollo card in the dashboard.
-        await this.loadAmsContinueWatching({ sync: true });
+        await this.loadAmsContinueWatching();
       } else {
         await this.callApolloScript(this.config.progress_refresh_script, {
           player_entity: playerEntity
@@ -2988,7 +2930,6 @@ class ApolloMediaCard extends HTMLElement {
       </div>`;
   }
 
-
   posterMarkup(item, extraClass = "") {
     const progress =
       typeof item.progress === "number"
@@ -3161,7 +3102,6 @@ class ApolloMediaCard extends HTMLElement {
   renderMediaHome() {
     return this.mediaRows.map(row => this.renderRail(row)).join("");
   }
-
 
   renderLibraryHome() {
     return (this.libraryHomeRows || []).map(row => this.renderRail(row)).join("");
@@ -3343,14 +3283,14 @@ class ApolloMediaCard extends HTMLElement {
       const removedItem = this.selectedTitle ? { ...this.selectedTitle } : null;
       if (!removedItem) return;
       const removeParams = this.fileParams(removedItem.removeTarget || "");
-      const source = String(removeParams.source || (removedItem.in_library ? "jellyfin" : "apollo"));
+      const source = String(removeParams.source || "apollo");
       this._removeContinuePending = true;
       event.currentTarget.disabled = true;
       try {
         await this.callApolloScript(this.config.remove_continue_script, {
           player_entity: playerEntity,
           source,
-          item_id: String(removeParams.item_id || removedItem.jellyfin_item_id || ""),
+          item_id: String(removeParams.item_id || ""),
           imdb: String(removeParams.imdb || removedItem.imdb || ""),
           season: Number(removeParams.season || removedItem.season || 0),
           episode: Number(removeParams.episode || removedItem.episode || 0)
