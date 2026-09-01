@@ -173,18 +173,69 @@ def select(index):
     return data, streams[index]
 
 
-def advance():
+
+def _resolution_value(stream):
+    quality = str((stream or {}).get("quality") or "").lower()
+    if "2160" in quality or "4k" in quality:
+        return 2160
+    if "1080" in quality:
+        return 1080
+    if "720" in quality:
+        return 720
+    if "480" in quality or "sd" in quality:
+        return 480
+    return 0
+
+
+def _candidate_indices(data, current_index, failed_keys=None):
+    # One advancement policy for Try Next and upcoming automatic fallback:
+    # same resolution first, then lower tiers, never wrap to higher/earlier.
+    streams = data.get("streams") or []
+    flags = list(data.get("flags") or [])
+    failed_keys = set(failed_keys or ())
+    if not (0 <= current_index < len(streams)):
+        return []
+
+    current_resolution = _resolution_value(streams[current_index])
+    eligible = []
+    for index in range(current_index + 1, len(streams)):
+        stream = streams[index]
+        if _stream_flag(stream, flags):
+            continue
+        if set(identity_aliases(stream)) & failed_keys:
+            continue
+        eligible.append(index)
+
+    if current_resolution <= 0:
+        return eligible
+
+    same = [
+        index for index in eligible
+        if _resolution_value(streams[index]) == current_resolution
+    ]
+    lower = [
+        index for index in eligible
+        if 0 < _resolution_value(streams[index]) < current_resolution
+    ]
+    lower.sort(key=lambda index: (-_resolution_value(streams[index]), index))
+    unknown = [
+        index for index in eligible
+        if _resolution_value(streams[index]) <= 0
+    ]
+    return same + lower + unknown
+
+
+def advance(failed_keys=None):
     data = load()
     if not data:
         return None, None
     streams = data.get("streams") or []
     raw_index = data.get("index")
-    next_index = int(raw_index if raw_index is not None else -1) + 1
-    flag_rows = list(data.get("flags") or [])
-    while next_index < len(streams) and _stream_flag(streams[next_index], flag_rows):
-        next_index += 1
-    if next_index >= len(streams):
+    current_index = int(raw_index if raw_index is not None else -1)
+    candidates = _candidate_indices(data, current_index, failed_keys)
+    if not candidates:
         return data, None
+    next_index = candidates[0]
     data["index"] = next_index
     with open(_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
