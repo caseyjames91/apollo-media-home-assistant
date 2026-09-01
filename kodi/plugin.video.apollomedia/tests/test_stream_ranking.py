@@ -21,3 +21,26 @@ class Tests(unittest.TestCase):
     def test_deterministic(self):
         x=[Stream("Z.Movie.1080p.WEB-DL","z",provider="torrentio"),Stream("A.Movie.1080p.WEB-DL","a",provider="torrentio")]
         self.assertEqual([s.url for s in rank_streams(x,{})],[s.url for s in rank_streams(reversed(x),{})])
+
+class RealWorldMetadataRegressionTests(unittest.TestCase):
+    def test_ps4k_is_not_4k(self):
+        streams=[
+            Stream("Toy Story 5 (2026) (1080p PS4K BluRay x265 10-bit SDR AAC 5.1).mkv","1080",provider="torrentio"),
+            Stream("Toy.Story.5.2026.WEB-DL.2160p.DV5.Ukr.Eng.mkv","2160",provider="torrentio"),
+        ]
+        self.assertEqual(rank_streams(streams,{})[0].url,"2160")
+
+    def test_standalone_4k_is_2160(self):
+        streams=[
+            Stream("Movie.1080p.BluRay.x265.mkv","1080",provider="torrentio"),
+            Stream("Movie.4K.WEB.x265.mkv","4k",provider="torrentio"),
+        ]
+        self.assertEqual(rank_streams(streams,{})[0].url,"4k")
+
+    def test_subtitle_languages_are_not_audio_languages(self):
+        stream=Stream("Toy.Story.5.2026.(Spanish.English.Subs).WEB-DL.1080p.x264-EAC3.mkv","x",provider="torrentio")
+        self.assertIsNone(filter_reason(stream,{"excluded_languages":"spanish"}))
+
+    def test_explicit_audio_language_still_detected(self):
+        stream=Stream("Toy.Story.5.2026.English.WEB-DL.1080p.x264-EAC3.mkv","x",provider="torrentio")
+        self.assertEqual(filter_reason(stream,{"excluded_languages":"english"}),"excluded_language")

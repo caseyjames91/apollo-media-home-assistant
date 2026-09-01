@@ -169,10 +169,15 @@ def _has(text, values):
     return any(v in text for v in values)
 
 def _resolution(text):
-    if _has(text, ("2160","4k","uhd")): return 2160
-    if "1080" in text: return 1080
-    if "720" in text: return 720
-    if _has(text, ("480"," sd ")): return 480
+    # Resolution markers must be standalone release tokens. Substrings such as
+    # "PS4K" are not 4K video and must never promote a 1080p source to 2160p.
+    if re.search(r"(?<![a-z0-9])2160p?(?![a-z0-9])", text, re.I): return 2160
+    if re.search(r"(?<![a-z0-9])4k(?![a-z0-9])", text, re.I): return 2160
+    if re.search(r"(?<![a-z0-9])uhd(?![a-z0-9])", text, re.I): return 2160
+    if re.search(r"(?<![a-z0-9])1080p?(?![a-z0-9])", text, re.I): return 1080
+    if re.search(r"(?<![a-z0-9])720p?(?![a-z0-9])", text, re.I): return 720
+    if re.search(r"(?<![a-z0-9])480p?(?![a-z0-9])", text, re.I): return 480
+    if re.search(r"(?<![a-z0-9])sd(?![a-z0-9])", text, re.I): return 480
     return 0
 
 def _csv(value):
@@ -191,7 +196,21 @@ def _languages(text):
         ("portuguese",(r"\bportuguese\b",r"\bpor\b",r"\bpt-br\b")),
         ("russian",(r"\brussian\b",r"\brus\b")),
     )
-    return tuple(lang for lang, pats in groups if any(re.search(p,text,re.I) for p in pats))
+
+    # Subtitle labels are not audio-language evidence. Strip compact release
+    # phrases such as "Spanish.English.Subs" before detecting languages.
+    names = r"(?:english|eng|spanish|spa|latino|french|fre|fra|german|ger|deu|italian|ita|japanese|jpn|korean|kor|hindi|hin|portuguese|por|pt-br|russian|rus)"
+    audio_text = re.sub(
+        rf"(?<![a-z0-9]){names}(?:[._ -]+{names})*[._ -]+subs?(?:titles?)?(?![a-z0-9])",
+        " ",
+        text,
+        flags=re.I,
+    )
+    return tuple(
+        lang
+        for lang, pats in groups
+        if any(re.search(p, audio_text, re.I) for p in pats)
+    )
 
 def filter_reason(stream, profile=None):
     profile=profile or {}
