@@ -1,38 +1,26 @@
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).parents[1]
-CARD = (ROOT.parent / "apollo-media-card.js").read_text(encoding="utf-8")
-ADDON = (ROOT / "addon.xml").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
 
-class AmsContinueWatchingTests(unittest.TestCase):
+class TestRebuiltApolloContract(unittest.TestCase):
     def test_release_version(self):
-        self.assertIn('version="0.9.100"', ADDON)
-        self.assertIn('const APOLLO_CARD_VERSION = "0.9.83";', CARD)
+        addon = (ROOT / "addon.xml").read_text()
+        self.assertIn('version="0.10.21"', addon)
 
-    def test_ams_is_default_continue_authority_with_safe_fallback(self):
-        self.assertIn('ams_enabled: true', CARD)
-        self.assertIn('this._amsContinueReady', CARD)
-        self.assertIn('this.apolloItems(this.config.continue_entity)', CARD)
-        self.assertIn('Apollo AMS Continue Watching unavailable; using Home Assistant fallback', CARD)
+    def test_root_is_navigation_only(self):
+        main = (ROOT / "main.py").read_text()
+        home = main.split("def home():", 1)[1].split("\ndef ", 1)[0]
+        for label in ("Current Stream Info", "Try Next Stream", "Flag Current Stream",
+                      "Link TorBox", "Relink TorBox", "Detect Device Compatibility"):
+            self.assertNotIn(f'action_item("{label}', home)
+        self.assertIn('ListItem(label="Settings")', home)
 
-    def test_card_uses_authenticated_home_assistant_ingress(self):
-        self.assertIn('endpoint: "/ingress/session"', CARD)
-        self.assertIn('endpoint: "/ingress/panels"', CARD)
-        self.assertIn('endpoint: `/addons/${slug}/info`', CARD)
-        self.assertIn('document.cookie = `ingress_session=', CARD)
-        self.assertIn('credentials: "same-origin"', CARD)
-
-    def test_profile_scoped_continue_endpoint(self):
-        self.assertIn('profiles/${encodeURIComponent(profileId)}/continue-watching', CARD)
-        self.assertIn('ams_profile_id', CARD)
-        self.assertIn('ams_profile', CARD)
-
-    def test_playback_stays_on_existing_player_path(self):
-        self.assertIn('player_entity: playerEntity', CARD)
-        self.assertIn('this.config.play_script', CARD)
-        self.assertIn('this.apolloPluginUrl("play_resolved"', CARD)
-        self.assertIn('this.apolloPluginUrl("play_external"', CARD)
+    def test_playback_tools_remain_contextual(self):
+        main = (ROOT / "main.py").read_text()
+        self.assertIn('"Current Stream Info", f"RunPlugin(', main)
+        self.assertIn('"Try Next Stream", f"RunPlugin(', main)
+        self.assertIn('"Flag Current Stream", f"RunPlugin(', main)
 
 if __name__ == "__main__":
     unittest.main()

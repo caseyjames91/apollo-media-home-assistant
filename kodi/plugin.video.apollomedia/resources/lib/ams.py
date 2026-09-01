@@ -1,6 +1,5 @@
 import json
 import time
-import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 
@@ -13,246 +12,247 @@ def configured(addon):
     return bool(_base(addon))
 
 
-def _request(addon, path, method="GET", payload=None, timeout=6):
+def request(addon, path, method="GET", payload=None, timeout=8):
     base = _base(addon)
     if not base:
         raise RuntimeError("AMS URL is not configured")
-    body = None
+    data = None
     headers = {"Accept": "application/json"}
     if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
+        data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         f"{base}/{str(path or '').lstrip('/')}",
-        data=body,
+        data=data,
         headers=headers,
         method=method,
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = response.read()
-        if not data:
-            return None
-        return json.loads(data.decode("utf-8"))
-
-
-def resolve_profile_id(addon):
-    configured_id = str(addon.getSettingString("ams_profile_id") or "").strip()
-    if configured_id:
-        return configured_id
-    profiles = _request(addon, "profiles") or []
-    configured_name = str(addon.getSettingString("ams_profile") or "").strip().casefold()
-    selected = None
-    if configured_name:
-        selected = next(
-            (row for row in profiles if str(row.get("name") or "").strip().casefold() == configured_name),
-            None,
-        )
-    if selected is None and len(profiles) == 1:
-        selected = profiles[0]
-    if not selected:
-        raise RuntimeError("AMS profile is ambiguous; configure AMS profile in Apollo settings")
-    return str(selected.get("id") or "")
-
-
-def _iso_from_epoch(value):
+    started = time.monotonic()
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        body = response.read()
+        result = json.loads(body.decode("utf-8")) if body else None
     try:
-        epoch = float(value or 0)
+        import xbmc
+        xbmc.log(
+            f"[ApolloPerf] AMS {method} {path}: {time.monotonic()-started:.3f}s",
+            xbmc.LOGINFO,
+        )
     except Exception:
-        epoch = 0
-    if epoch <= 0:
-        epoch = time.time()
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+        pass
+    return result
 
 
-def import_progress(addon, entries):
-    profile_id = resolve_profile_id(addon)
-    items = []
-    for entry in entries or []:
-        imdb = str(entry.get("imdb_id") or "").strip()
-        if not imdb:
-            continue
-        season = int(entry.get("season") or 0)
-        episode = int(entry.get("episode") or 0)
-        items.append({
-            "media_type": "episode" if (season or episode) else "movie",
-            "canonical_id": imdb,
-            "title": str(entry.get("title") or "Unknown"),
-            "imdb_id": imdb,
-            "season": season if (season or episode) else None,
-            "episode": episode if (season or episode) else None,
-            "position_seconds": max(0.0, float(entry.get("position") or 0)),
-            "duration_seconds": max(0.0, float(entry.get("duration") or 0)),
-            "updated_at": _iso_from_epoch(entry.get("updated")),
-        })
-    if not items:
-        return {"status": "ok", "received": 0}
-    return _request(addon, "progress/import", method="POST", payload={"profile_id": profile_id, "items": items}, timeout=10)
+_profile_id_cache = None
 
 
-def report_progress(addon, imdb_id, media_type, season, episode, title, position, duration, updated=None):
-    if not configured(addon) or not imdb_id:
-        return False
-    profile_id = resolve_profile_id(addon)
-    season = int(season or 0)
-    episode = int(episode or 0)
-    payload = {
-        "profile_id": profile_id,
-        "media_type": "episode" if (season or episode) else str(media_type or "movie"),
-        "canonical_id": str(imdb_id),
-        "title": str(title or "Unknown"),
-        "imdb_id": str(imdb_id),
-        "season": season if (season or episode) else None,
-        "episode": episode if (season or episode) else None,
-        "position_seconds": max(0.0, float(position or 0)),
-        "duration_seconds": max(0.0, float(duration or 0)),
-        "updated_at": _iso_from_epoch(updated),
-    }
-    _request(addon, "progress", method="PUT", payload=payload, timeout=4)
-    return True
+def profile_id(addon):
+    global _profile_id_cache
+    if _profile_id_cache:
+        return _profile_id_cache
+
+    explicit = str(addon.getSettingString("ams_profile_id") or "").strip()
+    if explicit:
+        _profile_id_cache = explicit
+        return explicit
+
+    rows = request(addon, "profiles") or []
+    wanted = str(addon.getSettingString("ams_profile") or "").strip().casefold()
+    if wanted:
+        for row in rows:
+            if str(row.get("name") or "").strip().casefold() == wanted:
+                _profile_id_cache = str(row.get("id") or "")
+                return _profile_id_cache
+
+    if len(rows) == 1:
+        _profile_id_cache = str(rows[0].get("id") or "")
+        return _profile_id_cache
+
+    raise RuntimeError("Configure an AMS Profile ID or unambiguous profile name")
 
 
-def continue_watching(addon, local_progress=None):
-    if not configured(addon):
-        return None
-    if local_progress:
-        try:
-            import_progress(addon, local_progress)
-        except Exception:
-            pass
-    profile_id = resolve_profile_id(addon)
-    rows = _request(addon, f"profiles/{profile_id}/continue-watching", timeout=8)
+def media(
+    addon,
+    media_type="",
+    available_locally=None,
+    canonical_id="",
+    imdb_id="",
+    season=None,
+):
+    params = {}
+    if media_type:
+        params["media_type"] = media_type
+    if available_locally is not None:
+        params["available_locally"] = "true" if available_locally else "false"
+    if canonical_id:
+        params["canonical_id"] = canonical_id
+    if imdb_id:
+        params["imdb_id"] = imdb_id
+    if season is not None:
+        params["season"] = int(season)
+    path = "media"
+    if params:
+        path += "?" + urlencode(params)
+    rows = request(addon, path, timeout=12) or []
     return rows if isinstance(rows, list) else []
 
 
-def resume_progress(addon, imdb_id, media_type="movie", season=0, episode=0):
-    """Return profile-owned resumable progress for one canonical identity.
 
-    A successful AMS response with no matching continue-watching row means the
-    profile has no resumable progress for this item and returns (0, 0). Network
-    or configuration failures are deliberately allowed to raise so callers can
-    distinguish an unavailable authority from an authoritative zero position.
-    """
-    if not configured(addon):
-        raise RuntimeError("AMS URL is not configured")
+_progress_cache = {}
+_progress_index_cache = {}
 
-    imdb_id = str(imdb_id or "").strip().lower()
-    if not imdb_id:
-        return 0.0, 0.0
 
+def progress_rows(addon):
+    pid = profile_id(addon)
+    cached = _progress_cache.get(pid)
+    if cached is not None:
+        return cached
+    rows = request(addon, f"profiles/{pid}/progress", timeout=10) or []
+    rows = rows if isinstance(rows, list) else []
+    _progress_cache[pid] = rows
+    return rows
+
+
+def _progress_value(progress):
+    if not progress:
+        return 0.0, 0.0, False
+    return (
+        max(0.0, float(progress.get("position_seconds") or 0)),
+        max(0.0, float(progress.get("duration_seconds") or 0)),
+        bool(progress.get("watched")),
+    )
+
+
+def progress_index(addon):
+    """Build O(1) profile progress lookup maps once per plugin invocation."""
+    pid = profile_id(addon)
+    cached = _progress_index_cache.get(pid)
+    if cached is not None:
+        return cached
+
+    by_media_id = {}
+    by_canonical = {}
+    by_imdb = {}
+
+    for progress in progress_rows(addon):
+        season = int(progress.get("season") or 0)
+        episode = int(progress.get("episode") or 0)
+
+        media_id = str(progress.get("media_id") or "").strip()
+        if media_id:
+            by_media_id[media_id] = progress
+
+        canonical = str(progress.get("canonical_id") or "").strip().casefold()
+        if canonical:
+            by_canonical[(canonical, season, episode)] = progress
+
+        imdb = str(progress.get("imdb_id") or "").strip().casefold()
+        if imdb:
+            by_imdb[(imdb, season, episode)] = progress
+
+    cached = {
+        "media_id": by_media_id,
+        "canonical": by_canonical,
+        "imdb": by_imdb,
+    }
+    _progress_index_cache[pid] = cached
+    return cached
+
+
+def progress_for(addon, row, season=0, episode=0):
+    media_id = str(row.get("media_id") or row.get("id") or "").strip()
+    canonical = str(row.get("canonical_id") or "").strip().casefold()
+    imdb = str(row.get("imdb_id") or "").strip().casefold()
+    season = int(season or row.get("season") or 0)
+    episode = int(episode or row.get("episode") or 0)
+
+    index = progress_index(addon)
+
+    if media_id:
+        progress = index["media_id"].get(media_id)
+        if progress is not None:
+            return _progress_value(progress)
+
+    if canonical:
+        progress = index["canonical"].get((canonical, season, episode))
+        if progress is not None:
+            return _progress_value(progress)
+
+    if imdb:
+        progress = index["imdb"].get((imdb, season, episode))
+        if progress is not None:
+            return _progress_value(progress)
+
+    return 0.0, 0.0, False
+
+
+def resolve_playback_identity(addon, media_id):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        return {}
+    result = request(addon, f"media/{media_id}/playback-identity", timeout=15) or {}
+    return result if isinstance(result, dict) else {}
+
+
+def continue_watching(addon):
+    rows = request(addon, f"profiles/{profile_id(addon)}/continue-watching", timeout=10) or []
+    return rows if isinstance(rows, list) else []
+
+
+def resume(addon, imdb_id, season=0, episode=0):
+    target = str(imdb_id or "").strip().casefold()
     season = int(season or 0)
     episode = int(episode or 0)
-    profile_id = resolve_profile_id(addon)
-    rows = _request(addon, f"profiles/{profile_id}/continue-watching", timeout=6) or []
-
-    for row in rows if isinstance(rows, list) else []:
-        row_imdb = str(row.get("imdb_id") or "").strip().lower()
-        if row_imdb != imdb_id:
+    if not target:
+        return 0.0, 0.0
+    for row in progress_rows(addon):
+        if str(row.get("imdb_id") or "").strip().casefold() != target:
             continue
-        row_season = int(row.get("season") or 0)
-        row_episode = int(row.get("episode") or 0)
-        if row_season != season or row_episode != episode:
+        if int(row.get("season") or 0) != season:
+            continue
+        if int(row.get("episode") or 0) != episode:
             continue
         return (
             max(0.0, float(row.get("position_seconds") or 0)),
             max(0.0, float(row.get("duration_seconds") or 0)),
         )
-
     return 0.0, 0.0
 
 
-def reset_progress(addon, imdb_id, media_type, season=0, episode=0, title=""):
-    """Clear resumable progress for the configured AMS profile."""
-    return report_progress(
-        addon, imdb_id, media_type, int(season or 0), int(episode or 0),
-        title, 0.0, 0.0, updated=time.time(),
-    )
+def playback_resolution(addon, media_id):
+    device_key = str(addon.getSettingString("ams_device_key") or "").strip()
+    if not device_key:
+        raise RuntimeError("AMS Device Key is not configured")
+    query = urlencode({"device_key": device_key})
+    return request(addon, f"media/{media_id}/playback-resolution?{query}", timeout=10) or {}
 
 
-def device_key(addon):
-    """Return the AMS device key configured for this Kodi instance."""
-    return str(addon.getSettingString("ams_device_key") or "").strip()
-
-
-
-def media(addon, media_type="", available_locally=None):
-    """Return Apollo media rows using AMS as the catalog authority."""
-    if not configured(addon):
-        return []
-
-    params = {}
-    if media_type:
-        params["media_type"] = str(media_type)
-    if available_locally is not None:
-        params["available_locally"] = "true" if available_locally else "false"
-
-    path = "media"
-    if params:
-        path += "?" + urlencode(params)
-
-    rows = _request(addon, path, timeout=10) or []
-    return rows if isinstance(rows, list) else []
-
-
-def find_media(addon, imdb_id, media_type="movie", season=0, episode=0):
-    """Resolve Kodi's canonical IMDb(+S/E) identity to one AMS media row.
-
-    AMS is authoritative for local availability. This adapter intentionally does
-    not title-match or ask Jellyfin whether the media is local.
-    """
-    imdb_id = str(imdb_id or "").strip().lower()
-    if not imdb_id:
-        return None
-
+def report_progress(addon, canonical_id, imdb_id, media_type, season, episode, title, position, duration):
+    if not configured(addon) or not canonical_id:
+        return
     season = int(season or 0)
     episode = int(episode or 0)
-    requested_type = str(media_type or "movie").strip().lower()
-    ams_type = "episode" if (requested_type in ("series", "episode", "show", "tv") or episode > 0) else "movie"
-    rows = _request(
-        addon,
-        "media?" + urlencode({"media_type": ams_type}),
-        timeout=8,
-    ) or []
-
-    for row in rows:
-        if str(row.get("imdb_id") or "").strip().lower() != imdb_id:
-            continue
-        if ams_type == "episode":
-            if int(row.get("season") or 0) != season:
-                continue
-            if int(row.get("episode") or 0) != episode:
-                continue
-        return row
-    return None
+    payload = {
+        "profile_id": profile_id(addon),
+        "media_type": "episode" if episode > 0 else str(media_type or "movie"),
+        "canonical_id": str(canonical_id),
+        "title": str(title or "Unknown"),
+        "imdb_id": str(imdb_id),
+        "season": season if episode > 0 else None,
+        "episode": episode if episode > 0 else None,
+        "position_seconds": max(0.0, float(position or 0)),
+        "duration_seconds": max(0.0, float(duration or 0)),
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    request(addon, "progress", method="PUT", payload=payload, timeout=5)
 
 
-def playback_resolution(addon, media_id, requested_device_key=""):
-    requested_device_key = str(requested_device_key or device_key(addon)).strip()
-    if not requested_device_key:
-        raise RuntimeError("AMS device key is not configured")
-    media_id = str(media_id or "").strip()
-    if not media_id:
-        raise RuntimeError("AMS media id is required for playback resolution")
-    query = urlencode({"device_key": requested_device_key})
-    return _request(
-        addon,
-        f"media/{media_id}/playback-resolution?{query}",
-        timeout=8,
-    )
-
-
-def resolve_playback_for_identity(addon, imdb_id, media_type="movie", season=0, episode=0):
-    """Return AMS's playback decision for a Kodi identity.
-
-    None means this Kodi client is not opted into AMS local routing yet, or AMS
-    does not know this identity. A returned decision is authoritative: local
-    yields a device-mapped playback_path; remote means the existing remote
-    provider flow should be used.
-    """
-    if not configured(addon) or not device_key(addon):
-        return None
-    media = find_media(addon, imdb_id, media_type, season, episode)
-    if not media:
-        return None
-    decision = playback_resolution(addon, media.get("id")) or {}
-    decision["media"] = media
-    return decision
+def discovery(addon, mode, media_type, query=""):
+    mode = str(mode or "").strip().lower()
+    media_type = str(media_type or "").strip().lower()
+    if mode not in {"popular", "trending", "search"}:
+        raise RuntimeError(f"Unsupported discovery mode: {mode}")
+    path = f"discovery/{mode}/{media_type}"
+    if mode == "search":
+        path += "?" + urlencode({"q": str(query or "").strip()})
+    rows = request(addon, path, timeout=20) or []
+    return rows if isinstance(rows, list) else []

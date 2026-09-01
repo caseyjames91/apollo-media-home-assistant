@@ -113,7 +113,7 @@ def _make_flag(stream, reason, created=None):
     }
 
 
-def save(streams, imdb_id, media_type, season, episode, title, resume_position=0, resume_duration=0, resume_mode="native"):
+def save(streams, imdb_id, media_type, season, episode, title, resume_position=0, resume_duration=0, jellyfin_item_id="", resume_mode="native"):
     old = load()
     same_identity = bool(
         old
@@ -167,6 +167,7 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
         "resume_position": float(resume_position or 0),
         "resume_duration": float(resume_duration or 0),
         "resume_mode": str(resume_mode or "native"),
+        "jellyfin_item_id": str(jellyfin_item_id or ""),
         "streams": rows,
         "flags": flags,
     }
