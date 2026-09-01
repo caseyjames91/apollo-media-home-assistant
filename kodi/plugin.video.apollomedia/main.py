@@ -371,7 +371,10 @@ def _bool_setting(name, default=True):
 
 
 def _remote_profile():
-    return compatibility_profile(ADDON)
+    result = compatibility_profile(ADDON)
+    for key in ("provider_priority","preferred_languages","allowed_languages","excluded_languages"):
+        result[key] = ADDON.getSettingString(key)
+    return result
 
 def _providers():
     return [name for name in ("comet","torrentio","debridio") if _bool_setting("provider_"+name, name!="debridio")]

@@ -144,6 +144,12 @@
           <control type="toggle" />
         </setting>
       </group>
+      <group id="5" label="32039">
+        <setting id="provider_priority" type="string" label="32040"><level>0</level><default>debridio,torrentio,comet</default><control type="edit" format="string" /></setting>
+        <setting id="preferred_languages" type="string" label="32041"><level>0</level><default>english</default><control type="edit" format="string" /></setting>
+        <setting id="allowed_languages" type="string" label="32042"><level>0</level><default /><constraints><allowempty>true</allowempty></constraints><control type="edit" format="string" /></setting>
+        <setting id="excluded_languages" type="string" label="32043"><level>0</level><default /><constraints><allowempty>true</allowempty></constraints><control type="edit" format="string" /></setting>
+      </group>
       <group id="3" label="32029">
         <setting id="detected_device" type="string" label="32030">
           <level>0</level>

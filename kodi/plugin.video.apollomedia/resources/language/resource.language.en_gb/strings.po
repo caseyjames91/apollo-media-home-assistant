@@ -158,3 +158,23 @@ msgstr "Link / Relink TorBox"
 msgctxt "#32038"
 msgid "Detect Device Compatibility"
 msgstr "Detect Device Compatibility"
+
+msgctxt "#32039"
+msgid "Stream Ranking & Language"
+msgstr "Stream Ranking & Language"
+
+msgctxt "#32040"
+msgid "Provider Priority"
+msgstr "Provider Priority"
+
+msgctxt "#32041"
+msgid "Preferred Languages"
+msgstr "Preferred Languages"
+
+msgctxt "#32042"
+msgid "Allowed Languages"
+msgstr "Allowed Languages"
+
+msgctxt "#32043"
+msgid "Excluded Languages"
+msgstr "Excluded Languages"

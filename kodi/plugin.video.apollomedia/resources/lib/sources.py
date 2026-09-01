@@ -162,50 +162,105 @@ def debridio(addon_url, imdb_id, media_type, season=None, episode=None):
 
 
 
-def score(stream, profile=None):
-    profile = profile or {}
-    text = f"{stream.title} {stream.description}".lower()
-    points = 0
-    if any(value in text for value in ("2160", "4k", "uhd")): points += 100000
-    elif "1080" in text: points += 50000
-    elif "720" in text: points += 20000
-    if "remux" in text: points += 6000
-    elif "bluray" in text or "blu-ray" in text: points += 4000
-    elif any(value in text for value in ("web-dl", "webdl", "web dl")): points += 2000
-    if any(value in text for value in ("dolby vision", "dovi", "hdr10", " hdr")): points += 500
-    if any(value in text for value in ("truehd", "atmos", "dts-hd", "dtsx")): points += 200
-    if any(value in f" {text} " for value in (" cam ", " ts ", "hdcam", "telesync")): points -= 100000
-    checks = (
-        ("allow_2160p", ("2160", "4k", "uhd")),
-        ("allow_1080p", ("1080",)), ("allow_720p", ("720",)), ("allow_480p", ("480", " sd ")),
-        ("allow_dolby_vision", ("dolby vision", "dovi", " dv ")),
-        ("allow_hdr10plus", ("hdr10+", "hdr10plus")), ("allow_hlg", (" hlg",)),
-        ("allow_av1", ("av1", "av01")), ("allow_hevc", ("hevc", "h265", "h.265", "x265")),
-        ("allow_h264", ("h264", "h.264", "x264", "avc")), ("allow_mpeg2", ("mpeg2", "mpeg-2")),
-        ("allow_vc1", ("vc-1", "vc1")), ("allow_truehd", ("truehd", "atmos")),
-        ("allow_dtshd", ("dts-hd", "dtshd", "dts:x", "dtsx")),
-        ("allow_eac3", ("eac3", "e-ac-3", "dd+")), ("allow_ac3", ("ac3", "ac-3")),
-        ("allow_aac", (" aac",)),
+def _stream_text(stream):
+    return f" {stream.title} {stream.description} ".lower()
+
+def _has(text, values):
+    return any(v in text for v in values)
+
+def _resolution(text):
+    if _has(text, ("2160","4k","uhd")): return 2160
+    if "1080" in text: return 1080
+    if "720" in text: return 720
+    if _has(text, ("480"," sd ")): return 480
+    return 0
+
+def _csv(value):
+    return tuple(x.strip().lower() for x in str(value or "").split(",") if x.strip())
+
+def _languages(text):
+    groups=(
+        ("english",(r"\benglish\b",r"\beng\b")),
+        ("spanish",(r"\bspanish\b",r"\bspa\b",r"\blatino\b")),
+        ("french",(r"\bfrench\b",r"\bfre\b",r"\bfra\b")),
+        ("german",(r"\bgerman\b",r"\bger\b",r"\bdeu\b")),
+        ("italian",(r"\bitalian\b",r"\bita\b")),
+        ("japanese",(r"\bjapanese\b",r"\bjpn\b")),
+        ("korean",(r"\bkorean\b",r"\bkor\b")),
+        ("hindi",(r"\bhindi\b",r"\bhin\b")),
+        ("portuguese",(r"\bportuguese\b",r"\bpor\b",r"\bpt-br\b")),
+        ("russian",(r"\brussian\b",r"\brus\b")),
     )
-    detected = False
-    for setting, markers in checks:
-        if any(marker in f" {text} " for marker in markers):
-            detected = True
-            if profile.get(setting) is False:
-                points -= 300000
-    is_dv = any(value in f" {text} " for value in ("dolby vision", "dovi", " dv "))
-    is_hdr10plus = "hdr10+" in text or "hdr10plus" in text
-    is_hlg = " hlg" in f" {text} "
-    is_hdr10 = not is_dv and not is_hdr10plus and not is_hlg and ("hdr10" in text or " hdr" in f" {text} ")
-    if is_hdr10 and profile.get("allow_hdr10") is False:
-        points -= 300000
-    if not any((is_dv, is_hdr10plus, is_hlg, is_hdr10)) and profile.get("allow_sdr") is False:
-        points -= 300000
-    if not detected and profile.get("allow_unknown") is False:
-        points -= 300000
-    return points
+    return tuple(lang for lang, pats in groups if any(re.search(p,text,re.I) for p in pats))
 
+def filter_reason(stream, profile=None):
+    profile=profile or {}
+    text=_stream_text(stream)
+    if (
+        re.search(r"(?<![a-z0-9])(?:hdcam|camrip|cam|telesync|telecine)(?![a-z0-9])", text, re.I)
+        or re.search(r"(?<![a-z0-9])ts(?![a-z0-9])", text, re.I)
+    ):
+        return "cam_or_telesync"
+    rs={2160:"allow_2160p",1080:"allow_1080p",720:"allow_720p",480:"allow_480p"}.get(_resolution(text))
+    if rs and profile.get(rs) is False: return rs
+    checks=(
+        ("allow_dolby_vision",("dolby vision","dovi"," dv ")),
+        ("allow_hdr10plus",("hdr10+","hdr10plus")),
+        ("allow_hlg",(" hlg",)),
+        ("allow_av1",("av1","av01")),
+        ("allow_hevc",("hevc","h265","h.265","x265")),
+        ("allow_h264",("h264","h.264","x264","avc")),
+        ("allow_mpeg2",("mpeg2","mpeg-2")),
+        ("allow_vc1",("vc-1","vc1")),
+        ("allow_truehd",("truehd","atmos")),
+        ("allow_dtshd",("dts-hd","dtshd","dts:x","dtsx")),
+        ("allow_eac3",("eac3","e-ac-3","dd+")),
+        ("allow_ac3",("ac3","ac-3")),
+        ("allow_aac",(" aac",)),
+    )
+    detected=bool(_resolution(text))
+    for setting,markers in checks:
+        if _has(text,markers):
+            detected=True
+            if profile.get(setting) is False: return setting
+    dv=_has(text,("dolby vision","dovi"," dv "))
+    hp=_has(text,("hdr10+","hdr10plus"))
+    hlg=" hlg" in text
+    hdr10=not any((dv,hp,hlg)) and _has(text,("hdr10"," hdr "))
+    if hdr10 and profile.get("allow_hdr10") is False: return "allow_hdr10"
+    if not any((dv,hp,hlg,hdr10)) and profile.get("allow_sdr") is False: return "allow_sdr"
+    if not detected and profile.get("allow_unknown") is False: return "allow_unknown"
+    langs=set(_languages(text))
+    excluded=set(_csv(profile.get("excluded_languages")))
+    if langs & excluded: return "excluded_language"
+    allowed=set(_csv(profile.get("allowed_languages")))
+    if allowed and langs and not (langs & allowed): return "language_not_allowed"
+    return None
 
+def ranking_key(stream, profile=None):
+    profile=profile or {}
+    text=_stream_text(stream)
+    resolution={2160:4,1080:3,720:2,480:1,0:0}[_resolution(text)]
+    quality=4 if "remux" in text else 3 if _has(text,("bluray","blu-ray")) else 2 if _has(text,("web-dl","webdl","web dl")) else 1 if "webrip" in text else 0
+    preferred=_csv(profile.get("preferred_languages"))
+    langs=_languages(text)
+    hits=[preferred.index(x) for x in langs if x in preferred]
+    language=len(preferred)-min(hits) if hits else 0
+    priority=_csv(profile.get("provider_priority")) or ("debridio","torrentio","comet")
+    provider=len(priority)-priority.index(stream.provider.lower()) if stream.provider.lower() in priority else 0
+    hdr=1 if _has(text,("dolby vision","dovi"," hdr","hlg")) else 0
+    audio=1 if _has(text,("truehd","atmos","dts-hd","dts:x","dtsx")) else 0
+    return (resolution,quality,language,provider,hdr,audio)
+
+def score(stream, profile=None):
+    if filter_reason(stream,profile): return -1
+    return sum(v*w for v,w in zip(ranking_key(stream,profile),(100000,10000,1000,100,10,1)))
+
+def rank_streams(streams, profile=None):
+    eligible=[s for s in streams if filter_reason(s,profile) is None]
+    eligible.sort(key=lambda s:(s.provider.lower(),s.title.casefold(),s.url))
+    eligible.sort(key=lambda s:ranking_key(s,profile),reverse=True)
+    return eligible
 
 def find_streams(
     token,
@@ -262,8 +317,4 @@ def find_streams(
         key = re.sub(r"[^a-z0-9]", "", stream.title.lower()) or stream.url
         deduped.setdefault(key, stream)
 
-    return sorted(
-        deduped.values(),
-        key=lambda stream: score(stream, profile),
-        reverse=True,
-    )
+    return rank_streams(deduped.values(), profile)
