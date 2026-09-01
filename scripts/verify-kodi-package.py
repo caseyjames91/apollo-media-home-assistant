@@ -57,13 +57,29 @@ if found:
     raise SystemExit("ERROR: legacy media route contract found in packaged main.py: " + ", ".join(found))
 
 required = [
-    'add_folder("Library Movies", "library")',
-    'add_folder("Library Shows", "series_library")',
-    'action="discovery_seasons"',
-    'remote_ams_library("series"',
+    'folder("Library Movies", url("library_movies"))',
+    'folder("Library Shows", url("library_shows"))',
+    'folder("Continue Watching", url("continue"))',
+    'def playable_media(',
+    '"play_remote",',
+    '"Play Locally"',
+    '"Pick Stream Manually"',
 ]
 absent = [token for token in required if token not in main_text]
 if absent:
-    raise SystemExit("ERROR: canonical library/detail contract missing from packaged main.py: " + ", ".join(absent))
+    raise SystemExit("ERROR: rebuilt canonical media/playback contract missing from packaged main.py: " + ", ".join(absent))
+
+forbidden_root_actions = [
+    'action_item("Current Stream Info"',
+    'action_item("Try Next Stream"',
+    'action_item("Flag Current Stream"',
+    'action_item("Detect Device Compatibility"',
+    'action_item("Link TorBox"',
+    'action_item("Relink TorBox"',
+]
+home_text = main_text.split("def home():", 1)[1].split("\ndef ", 1)[0]
+found_root = [token for token in forbidden_root_actions if token in home_text]
+if found_root:
+    raise SystemExit("ERROR: maintenance/playback actions leaked into rebuilt root: " + ", ".join(found_root))
 
 print(f"PASS: Kodi package exactly matches canonical source: {package.name}")
