@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class TestRebuiltApolloContract(unittest.TestCase):
     def test_release_version(self):
         addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.26"', addon)
+        self.assertIn('version="0.10.27"', addon)
 
     def test_root_is_navigation_only(self):
         main = (ROOT / "main.py").read_text()
