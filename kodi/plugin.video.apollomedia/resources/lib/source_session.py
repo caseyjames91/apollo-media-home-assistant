@@ -1,67 +1,16 @@
 import json
 import os
 import re
+
+from .stream_metadata import technical_info
 import time
 
 import xbmcvfs
 
 
+
 def _technical_info(title="", description=""):
-    text = f"{title} {description}".lower()
-
-    if any(marker in text for marker in ("2160", "4k", "uhd")):
-        quality = "4K / 2160p"
-    elif "1080" in text:
-        quality = "1080p"
-    elif "720" in text:
-        quality = "720p"
-    elif any(marker in f" {text} " for marker in (" 480", " sd ")):
-        quality = "SD / 480p"
-    else:
-        quality = "Other"
-
-    video_bits = [quality]
-    if any(marker in f" {text} " for marker in ("dolby vision", "dovi", " dv ")):
-        video_bits.append("Dolby Vision")
-    elif "hdr10+" in text or "hdr10plus" in text:
-        video_bits.append("HDR10+")
-    elif "hdr10" in text or " hdr " in f" {text} ":
-        video_bits.append("HDR")
-    if any(marker in text for marker in ("hevc", "h265", "h.265", "x265")):
-        video_bits.append("HEVC")
-    elif any(marker in text for marker in ("av1", "av01")):
-        video_bits.append("AV1")
-    elif any(marker in text for marker in ("h264", "h.264", "x264", "avc")):
-        video_bits.append("H.264")
-
-    audio = ""
-    if "truehd" in text:
-        audio = "TrueHD"
-    elif any(marker in text for marker in ("eac3", "e-ac-3", "ddp", "dd+")):
-        audio = "Dolby Digital Plus"
-    elif any(marker in text for marker in ("ac3", "ac-3")):
-        audio = "Dolby Digital"
-    elif any(marker in text for marker in ("dts-hd", "dtshd", "dts:x", "dtsx")):
-        audio = "DTS-HD"
-    elif " dts" in f" {text} ":
-        audio = "DTS"
-    elif " aac" in f" {text} ":
-        audio = "AAC"
-
-    if "atmos" in text:
-        audio = f"{audio} · Atmos" if audio else "Atmos"
-
-    channel_match = re.search(r"(?<!\d)([257])\s*[.]\s*1(?!\d)", text)
-    if channel_match:
-        channels = f"{channel_match.group(1)}.1"
-        audio = f"{audio} · {channels}" if audio else channels
-
-    return {
-        "quality": quality,
-        "video": " · ".join(dict.fromkeys(video_bits)),
-        "audio": audio or "Unknown audio",
-    }
-
+    return technical_info(title, description)
 
 def _path():
     directory = xbmcvfs.translatePath("special://profile/addon_data/plugin.video.apollomedia")

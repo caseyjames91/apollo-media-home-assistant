@@ -6,6 +6,7 @@ import urllib.parse
 from dataclasses import dataclass
 
 from .http import get_json
+from .stream_metadata import filter_reason, rank_streams, ranking_key, score
 
 
 COMET_URL = "https://comet.elfhosted.com"
@@ -162,124 +163,6 @@ def debridio(addon_url, imdb_id, media_type, season=None, episode=None):
 
 
 
-def _stream_text(stream):
-    return f" {stream.title} {stream.description} ".lower()
-
-def _has(text, values):
-    return any(v in text for v in values)
-
-def _resolution(text):
-    # Resolution markers must be standalone release tokens. Substrings such as
-    # "PS4K" are not 4K video and must never promote a 1080p source to 2160p.
-    if re.search(r"(?<![a-z0-9])2160p?(?![a-z0-9])", text, re.I): return 2160
-    if re.search(r"(?<![a-z0-9])4k(?![a-z0-9])", text, re.I): return 2160
-    if re.search(r"(?<![a-z0-9])uhd(?![a-z0-9])", text, re.I): return 2160
-    if re.search(r"(?<![a-z0-9])1080p?(?![a-z0-9])", text, re.I): return 1080
-    if re.search(r"(?<![a-z0-9])720p?(?![a-z0-9])", text, re.I): return 720
-    if re.search(r"(?<![a-z0-9])480p?(?![a-z0-9])", text, re.I): return 480
-    if re.search(r"(?<![a-z0-9])sd(?![a-z0-9])", text, re.I): return 480
-    return 0
-
-def _csv(value):
-    return tuple(x.strip().lower() for x in str(value or "").split(",") if x.strip())
-
-def _languages(text):
-    groups=(
-        ("english",(r"\benglish\b",r"\beng\b")),
-        ("spanish",(r"\bspanish\b",r"\bspa\b",r"\blatino\b")),
-        ("french",(r"\bfrench\b",r"\bfre\b",r"\bfra\b")),
-        ("german",(r"\bgerman\b",r"\bger\b",r"\bdeu\b")),
-        ("italian",(r"\bitalian\b",r"\bita\b")),
-        ("japanese",(r"\bjapanese\b",r"\bjpn\b")),
-        ("korean",(r"\bkorean\b",r"\bkor\b")),
-        ("hindi",(r"\bhindi\b",r"\bhin\b")),
-        ("portuguese",(r"\bportuguese\b",r"\bpor\b",r"\bpt-br\b")),
-        ("russian",(r"\brussian\b",r"\brus\b")),
-    )
-
-    # Subtitle labels are not audio-language evidence. Strip compact release
-    # phrases such as "Spanish.English.Subs" before detecting languages.
-    names = r"(?:english|eng|spanish|spa|latino|french|fre|fra|german|ger|deu|italian|ita|japanese|jpn|korean|kor|hindi|hin|portuguese|por|pt-br|russian|rus)"
-    audio_text = re.sub(
-        rf"(?<![a-z0-9]){names}(?:[._ -]+{names})*[._ -]+subs?(?:titles?)?(?![a-z0-9])",
-        " ",
-        text,
-        flags=re.I,
-    )
-    return tuple(
-        lang
-        for lang, pats in groups
-        if any(re.search(p, audio_text, re.I) for p in pats)
-    )
-
-def filter_reason(stream, profile=None):
-    profile=profile or {}
-    text=_stream_text(stream)
-    if (
-        re.search(r"(?<![a-z0-9])(?:hdcam|camrip|cam|telesync|telecine)(?![a-z0-9])", text, re.I)
-        or re.search(r"(?<![a-z0-9])ts(?![a-z0-9])", text, re.I)
-    ):
-        return "cam_or_telesync"
-    rs={2160:"allow_2160p",1080:"allow_1080p",720:"allow_720p",480:"allow_480p"}.get(_resolution(text))
-    if rs and profile.get(rs) is False: return rs
-    checks=(
-        ("allow_dolby_vision",("dolby vision","dovi"," dv ")),
-        ("allow_hdr10plus",("hdr10+","hdr10plus")),
-        ("allow_hlg",(" hlg",)),
-        ("allow_av1",("av1","av01")),
-        ("allow_hevc",("hevc","h265","h.265","x265")),
-        ("allow_h264",("h264","h.264","x264","avc")),
-        ("allow_mpeg2",("mpeg2","mpeg-2")),
-        ("allow_vc1",("vc-1","vc1")),
-        ("allow_truehd",("truehd","atmos")),
-        ("allow_dtshd",("dts-hd","dtshd","dts:x","dtsx")),
-        ("allow_eac3",("eac3","e-ac-3","dd+")),
-        ("allow_ac3",("ac3","ac-3")),
-        ("allow_aac",(" aac",)),
-    )
-    detected=bool(_resolution(text))
-    for setting,markers in checks:
-        if _has(text,markers):
-            detected=True
-            if profile.get(setting) is False: return setting
-    dv=_has(text,("dolby vision","dovi"," dv "))
-    hp=_has(text,("hdr10+","hdr10plus"))
-    hlg=" hlg" in text
-    hdr10=not any((dv,hp,hlg)) and _has(text,("hdr10"," hdr "))
-    if hdr10 and profile.get("allow_hdr10") is False: return "allow_hdr10"
-    if not any((dv,hp,hlg,hdr10)) and profile.get("allow_sdr") is False: return "allow_sdr"
-    if not detected and profile.get("allow_unknown") is False: return "allow_unknown"
-    langs=set(_languages(text))
-    excluded=set(_csv(profile.get("excluded_languages")))
-    if langs & excluded: return "excluded_language"
-    allowed=set(_csv(profile.get("allowed_languages")))
-    if allowed and langs and not (langs & allowed): return "language_not_allowed"
-    return None
-
-def ranking_key(stream, profile=None):
-    profile=profile or {}
-    text=_stream_text(stream)
-    resolution={2160:4,1080:3,720:2,480:1,0:0}[_resolution(text)]
-    quality=4 if "remux" in text else 3 if _has(text,("bluray","blu-ray")) else 2 if _has(text,("web-dl","webdl","web dl")) else 1 if "webrip" in text else 0
-    preferred=_csv(profile.get("preferred_languages"))
-    langs=_languages(text)
-    hits=[preferred.index(x) for x in langs if x in preferred]
-    language=len(preferred)-min(hits) if hits else 0
-    priority=_csv(profile.get("provider_priority")) or ("debridio","torrentio","comet")
-    provider=len(priority)-priority.index(stream.provider.lower()) if stream.provider.lower() in priority else 0
-    hdr=1 if _has(text,("dolby vision","dovi"," hdr","hlg")) else 0
-    audio=1 if _has(text,("truehd","atmos","dts-hd","dts:x","dtsx")) else 0
-    return (resolution,quality,language,provider,hdr,audio)
-
-def score(stream, profile=None):
-    if filter_reason(stream,profile): return -1
-    return sum(v*w for v,w in zip(ranking_key(stream,profile),(100000,10000,1000,100,10,1)))
-
-def rank_streams(streams, profile=None):
-    eligible=[s for s in streams if filter_reason(s,profile) is None]
-    eligible.sort(key=lambda s:(s.provider.lower(),s.title.casefold(),s.url))
-    eligible.sort(key=lambda s:ranking_key(s,profile),reverse=True)
-    return eligible
 
 def find_streams(
     token,
