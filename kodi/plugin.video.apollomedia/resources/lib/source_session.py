@@ -2,6 +2,7 @@ import json
 import os
 import re
 
+from .stream_identity import identity_aliases, release_key
 from .stream_metadata import technical_info
 import time
 
@@ -18,31 +19,25 @@ def _path():
     return os.path.join(directory, "source_session.json")
 
 
+
 def _stream_key(stream):
-    """Return a stable release identity that survives refreshed playback URLs."""
-    title = str((stream or {}).get("title") or "").strip().lower()
-    key = re.sub(r"[^a-z0-9]", "", title)
-    if key:
-        return key
-    return str((stream or {}).get("url") or "").strip()
+    return release_key(stream or {})
 
 
 def _flag_key(flag):
     stored = str((flag or {}).get("stream_key") or "").strip()
-    if stored:
-        return stored
-    return _stream_key(flag or {})
+    return stored or _stream_key(flag or {})
 
 
 def _flag_matches_stream(flag, stream):
-    flag_key = _flag_key(flag)
-    stream_key = _stream_key(stream)
-    if flag_key and stream_key and flag_key == stream_key:
+    flag_aliases = set(identity_aliases(flag or {}))
+    stream_aliases = set(identity_aliases(stream or {}))
+    if flag_aliases & stream_aliases:
         return True
+
     flag_url = str((flag or {}).get("url") or "")
     stream_url = str((stream or {}).get("url") or "")
     return bool(flag_url and stream_url and flag_url == stream_url)
-
 
 def _stream_flag(stream, flag_rows):
     for entry in flag_rows or []:
@@ -58,6 +53,7 @@ def _make_flag(stream, reason, created=None):
         "title": str((stream or {}).get("title") or ""),
         "provider": str((stream or {}).get("provider") or ""),
         "stream_key": _stream_key(stream or {}),
+        "release_aliases": list(identity_aliases(stream or {})),
         "created": float(created or time.time()),
     }
 
@@ -78,6 +74,10 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
             "url": stream.url,
             "description": stream.description,
             "provider": getattr(stream, "provider", ""),
+            "info_hash": getattr(stream, "info_hash", ""),
+            "size": int(getattr(stream, "size", 0) or 0),
+            "stream_key": release_key(stream),
+            "release_aliases": list(identity_aliases(stream)),
             **_technical_info(stream.title, stream.description),
         }
         for stream in streams
@@ -97,6 +97,7 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
         else:
             retained = dict(flag)
             retained["stream_key"] = _flag_key(flag)
+            retained["release_aliases"] = list(identity_aliases(flag))
             flags.append(retained)
 
     first_clean = -1

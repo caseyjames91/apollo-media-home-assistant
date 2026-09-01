@@ -6,6 +6,7 @@ import urllib.parse
 from dataclasses import dataclass
 
 from .http import get_json
+from .stream_identity import identity_aliases
 from .stream_metadata import filter_reason, rank_streams, ranking_key, score
 
 
@@ -19,6 +20,28 @@ class Stream:
     url: str
     description: str = ""
     provider: str = ""
+    info_hash: str = ""
+    size: int = 0
+
+
+def _safe_int(value):
+    try:
+        return max(int(float(value or 0)), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _stream_identity_fields(entry):
+    hints = entry.get("behaviorHints") or {}
+    return {
+        "info_hash": entry.get("infoHash") or hints.get("infoHash") or "",
+        "size": _safe_int(
+            entry.get("size")
+            or entry.get("videoSize")
+            or hints.get("videoSize")
+            or hints.get("size")
+        ),
+    }
 
 
 def stream_id(imdb_id, media_type, season=None, episode=None):
@@ -46,6 +69,7 @@ def comet(token, imdb_id, media_type, season=None, episode=None):
             entry.get("url") or "",
             f"[Comet] {(entry.get('description') or entry.get('title') or '').replace(chr(10), ' ')}",
             "comet",
+            **_stream_identity_fields(entry),
         )
         for entry in data.get("streams", [])
         if entry.get("url")
@@ -78,6 +102,7 @@ def torrentio(token, imdb_id, media_type, season=None, episode=None):
             url,
             f"[Torrentio] {name} {description}",
             "torrentio",
+            **_stream_identity_fields(entry),
         ))
     return streams
 
@@ -157,11 +182,29 @@ def debridio(addon_url, imdb_id, media_type, season=None, episode=None):
             url,
             f"[Debridio] {name} {title}",
             "debridio",
+            **_stream_identity_fields(entry),
         ))
 
     return streams
 
 
+
+
+def dedupe_streams(streams, profile=None):
+    # Rank first so provider priority deterministically chooses which provider
+    # survives when multiple providers expose the same release.
+    ranked = rank_streams(streams, profile)
+    unique = []
+    seen = set()
+
+    for stream in ranked:
+        aliases = set(identity_aliases(stream))
+        if aliases & seen:
+            continue
+        unique.append(stream)
+        seen.update(aliases)
+
+    return unique
 
 
 def find_streams(
@@ -212,11 +255,4 @@ def find_streams(
                 # One provider failing must not take down the others.
                 pass
 
-    deduped = {}
-    for stream in results:
-        # Prefer filename-ish identity across providers. If two providers expose
-        # the same release, Apollo only needs one playable candidate.
-        key = re.sub(r"[^a-z0-9]", "", stream.title.lower()) or stream.url
-        deduped.setdefault(key, stream)
-
-    return rank_streams(deduped.values(), profile)
+    return dedupe_streams(results, profile)
