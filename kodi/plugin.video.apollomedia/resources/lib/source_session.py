@@ -76,6 +76,8 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
             "provider": getattr(stream, "provider", ""),
             "info_hash": getattr(stream, "info_hash", ""),
             "size": int(getattr(stream, "size", 0) or 0),
+            "cached": getattr(stream, "cached", None),
+            "playable": bool(getattr(stream, "playable", True)),
             "stream_key": release_key(stream),
             "release_aliases": list(identity_aliases(stream)),
             **_technical_info(stream.title, stream.description),

@@ -132,6 +132,15 @@ class MonitorPlayer(xbmc.Player):
             pass
         return self.last_position, self.last_duration
 
+    def duration_is_implausible(self):
+        if self.expected_duration <= 0:
+            return False
+        _, duration = self.sample()
+        if duration <= 0:
+            return False
+        ratio = duration / self.expected_duration
+        return ratio < 0.50 or ratio > 1.75
+
     def emit(self):
         if not self.canonical_id:
             return
@@ -160,6 +169,16 @@ class MonitorPlayer(xbmc.Player):
         source_session.confirm_attempt()
         self.identify()
         self.sample()
+        if self.duration_is_implausible():
+            xbmc.log(
+                f"[ApolloFallback] implausible opened duration actual={self.last_duration:.1f}s "
+                f"expected={self.expected_duration:.1f}s",
+                xbmc.LOGWARNING,
+            )
+            self.stop()
+            _retry_failed_attempt("implausible_duration")
+            self.clear()
+            return
         try:
             source=xbmcgui.Window(10000).getProperty("ApolloPlaybackSource")
             if source:
@@ -217,6 +236,17 @@ while not monitor.abortRequested():
 
     if player.canonical_id and player.isPlayingVideo():
         player.sample()
+        if player.duration_is_implausible():
+            xbmc.log(
+                f"[ApolloFallback] implausible opened duration actual={player.last_duration:.1f}s "
+                f"expected={player.expected_duration:.1f}s",
+                xbmc.LOGWARNING,
+            )
+            player.stop()
+            _retry_failed_attempt("implausible_duration")
+            player.clear()
+            ticks = 0
+            continue
         ticks += 1
         if ticks >= 10:
             player.emit()

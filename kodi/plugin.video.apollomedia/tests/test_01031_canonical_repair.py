@@ -16,9 +16,11 @@ class Repair031(unittest.TestCase):
             self.assertIn(x,M)
         self.assertIn("report_duration=self.expected_duration",S)
         self.assertIn('"series_title": str(series_title or "") or None',A)
-    def test_hashless_provider_not_default_validated(self):
-        self.assertIn("elif provider_asserted and key:",SRC)
-        self.assertIn("stream.playable=False",SRC)
+    def test_provider_asserted_cache_is_accepted(self):
+        # 0.10.32 supersedes the 0.10.31 hash requirement.
+        self.assertIn("elif provider_asserted:",SRC)
+        self.assertNotIn("elif provider_asserted and key:",SRC)
+        self.assertIn("stream.cached=True",SRC)
     def test_parse(self):
         for p in (ROOT/"main.py",ROOT/"service.py",ROOT/"resources/lib/ams.py",ROOT/"resources/lib/sources.py"):
             ast.parse(p.read_text())

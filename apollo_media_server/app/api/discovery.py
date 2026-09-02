@@ -191,6 +191,32 @@ async def _tmdb_json(integration: Integration, path: str, params: dict | None = 
         response.raise_for_status()
         return response.json() or {}
 
+@router.get("/series-identity/{imdb_id}")
+def series_identity(imdb_id: str, db: Session = Depends(get_db)):
+    target = str(imdb_id or "").strip()
+    media = db.scalar(
+        select(Media).where(
+            Media.media_type == "show",
+            Media.imdb_id == target,
+        ).limit(1)
+    )
+    if media is None:
+        raise HTTPException(status_code=404, detail="Series identity not found")
+    return {
+        "media_id": str(media.id),
+        "media_type": "show",
+        "canonical_id": media.canonical_id,
+        "imdb_id": media.imdb_id,
+        "tmdb_id": media.tmdb_id,
+        "title": media.title,
+        "year": media.year,
+        "overview": media.overview,
+        "poster_url": media.poster_url,
+        "backdrop_url": media.backdrop_url,
+        "available_locally": _local(db, media),
+    }
+
+
 @router.get("/show/{tmdb_id}")
 async def show_details(tmdb_id: str, db: Session = Depends(get_db)):
     integration = _integration(db)

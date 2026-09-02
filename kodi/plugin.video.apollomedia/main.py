@@ -112,6 +112,8 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
         tag.setEpisode(int(episode or 0))
         if show_title:
             tag.setTvShowTitle(str(show_title))
+        # Keep Apollo's episode presentation annotation visible in Estuary.
+        tag.setTitle(display_label)
 
     # Always initialize Kodi state explicitly so a recycled/cached ListItem
     # cannot leak watched/resume metadata from another directory rendering.
@@ -458,6 +460,16 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})")
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
+    if int(episode or 0) > 0:
+        actions.append((
+            "Go to Series",
+            "Container.Update(" + url(
+                "go_to_series",
+                imdb=str(row.get("imdb_id") or ""),
+                series_tmdb=str(row.get("series_tmdb_id") or ""),
+                title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
+            ) + ")",
+        ))
     if row.get("available_locally") and media_id:
         actions.insert(
             0,
@@ -684,7 +696,13 @@ def play_remote(p, choose=False):
         cached_only=str(p.get("cached_only") or "1") != "0"
         streams=_stream_candidates(p,cached_only=cached_only)
         if not streams and cached_only:
-            if xbmcgui.Dialog().yesno("Apollo Media","No cached playable streams were found.","Search uncached sources?"):
+            if xbmcgui.Dialog().yesno(
+                "Apollo Media",
+                "No cached streams were found.",
+                "Search uncached sources?",
+                nolabel="Cancel",
+                yeslabel="Search Uncached",
+            ):
                 retry=dict(p); retry["cached_only"]="0"
                 streams=_stream_candidates(retry,cached_only=False)
                 p=retry
@@ -720,6 +738,27 @@ def play_remote(p, choose=False):
     except Exception as exc:
         notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
         xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+
+
+def go_to_series(p):
+    imdb = str(p.get("imdb") or "").strip()
+    tmdb = str(p.get("series_tmdb") or "").strip()
+    title = str(p.get("title") or "Show")
+    try:
+        if not tmdb and imdb:
+            identity = ams.series_identity(ADDON, imdb)
+            tmdb = str(identity.get("tmdb_id") or "").strip()
+            title = str(identity.get("title") or title)
+        if tmdb:
+            discovery_show({"tmdb": tmdb, "imdb": imdb, "title": title})
+            return
+        if imdb:
+            show(imdb, title)
+            return
+        raise RuntimeError("Series identity is unavailable")
+    except Exception as exc:
+        notify(f"Unable to open series: {exc}", xbmcgui.NOTIFICATION_ERROR)
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
 
 
 def current_stream_info():
@@ -941,6 +980,8 @@ def dispatch():
         discovery_show(p)
     elif action == "discovery_season":
         discovery_season(p)
+    elif action == "go_to_series":
+        go_to_series(p)
     elif action == "play_remote":
         play_remote(p,False)
     elif action == "play_remote_choose":

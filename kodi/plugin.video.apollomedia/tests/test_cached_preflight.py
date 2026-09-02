@@ -13,7 +13,9 @@ class TestCachedPreflight(unittest.TestCase):
         self.assertIn("archive_only",S)
         self.assertIn("has_video and not archive_only",S)
     def test_uncached_fallback(self):
-        self.assertIn("No cached playable streams were found",M)
+        self.assertIn("No cached streams were found.",M)
+        self.assertIn('yeslabel="Search Uncached"',M)
+        self.assertIn('nolabel="Cancel"',M)
         self.assertIn("Search uncached sources?",M)
     def test_duration_guard(self):
         self.assertIn("position < 10.0",V)
