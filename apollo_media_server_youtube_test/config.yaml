@@ -1,5 +1,5 @@
 name: Apollo Media Server YouTube Test
-version: "0.2.17-youtube-test"
+version: "0.2.18-youtube-test"
 slug: apollo_media_server_youtube_test
 description: Apollo-owned profiles, media state, local availability, progress, and playback sessions.
 url: https://github.com/caseyjames91/apollo-media-home-assistant
@@ -20,10 +20,8 @@ map:
   - ssl:ro
 options:
   log_level: info
-  youtube_import_key: ""
 schema:
   log_level: list(debug|info|warning|error)
-  youtube_import_key: str
 ports:
   8099/tcp: 18100
 ports_description:

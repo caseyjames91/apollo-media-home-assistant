@@ -2,10 +2,8 @@
 set -e
 
 LOG_LEVEL="$(bashio::config 'log_level')"
-YOUTUBE_IMPORT_KEY="$(bashio::config 'youtube_import_key')"
 export APOLLO_DATABASE_URL="sqlite:////config/apollo.db"
 export APOLLO_LOG_LEVEL="${LOG_LEVEL}"
-export APOLLO_YOUTUBE_IMPORT_KEY="${YOUTUBE_IMPORT_KEY}"
 
 install_custom_ca() {
     local source_ca="/ssl/Apollo+CA.crt"
