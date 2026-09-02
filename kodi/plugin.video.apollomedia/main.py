@@ -400,7 +400,10 @@ def _episode_air_label(air_date):
     except Exception: return ""
     today=date.today()
     if target <= today: return ""
-    return "Airs " + target.strftime("%b %d").replace(" 0"," ")
+    # Keep the episode title neutral and make the future-airing status
+    # visually distinct in Kodi's list row. Gold stays readable against
+    # both Estuary's normal dark list background and selected blue row.
+    return "[COLOR gold]Airing on " + target.strftime("%b %d").replace(" 0"," ") + "[/COLOR]"
 
 def discovery_season(p):
     tmdb = str(p.get("tmdb") or "").strip()

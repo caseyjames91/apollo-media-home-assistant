@@ -10,7 +10,7 @@ SRC=(ROOT/"resources/lib/sources.py").read_text()
 class Repair031(unittest.TestCase):
     def test_air_label_presentation(self):
         self.assertIn("item.setLabel(display_label)",M)
-        self.assertIn("Airs ",M)
+        self.assertIn("Airing on ",M)
     def test_complete_playback_contract(self):
         for x in ("ApolloSeriesTitle","ApolloTmdbId","ApolloExpectedDuration"):
             self.assertIn(x,M)
