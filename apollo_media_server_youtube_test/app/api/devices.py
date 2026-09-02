@@ -18,6 +18,7 @@ def register_device(payload: DeviceRegister, db: Session = Depends(get_db)):
         row.name = payload.name
         row.device_type = payload.device_type
         row.ha_entity_id = payload.ha_entity_id
+        row.kodi_jsonrpc_url = payload.kodi_jsonrpc_url
         row.last_seen_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)

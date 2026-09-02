@@ -12,6 +12,7 @@ class Device(Base):
     device_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     device_type: Mapped[str] = mapped_column(String(32), default="kodi", nullable=False)
     ha_entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    kodi_jsonrpc_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

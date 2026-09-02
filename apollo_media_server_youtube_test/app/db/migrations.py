@@ -36,6 +36,9 @@ _REQUIRED_SQLITE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     "integrations": (
         ("name", "VARCHAR(100) NOT NULL DEFAULT 'default'"),
     ),
+    "devices": (
+        ("kodi_jsonrpc_url", "VARCHAR(500)"),
+    ),
 }
 
 

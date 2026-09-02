@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.device import Device
-from app.services import home_assistant
+from app.services import kodi
 import asyncio
 import json
 from pathlib import Path
@@ -71,27 +71,28 @@ async def play(
     device = db.scalar(select(Device).where(Device.device_key == device_key))
     if device is None:
         raise RuntimeError(f"Unknown device: {device_key}")
-    if not device.ha_entity_id:
-        raise RuntimeError(f"Device has no Home Assistant entity: {device_key}")
+    if not device.kodi_jsonrpc_url:
+        raise RuntimeError(f"Device has no Kodi JSON-RPC URL: {device_key}")
 
     plugin_url = f"plugin://plugin.video.youtube/play/?video_id={video_id}"
 
-    await home_assistant.play_media(
-        device.ha_entity_id,
+    await kodi.open_file(
+        device.kodi_jsonrpc_url,
         plugin_url,
-        "video",
     )
 
     if start_seconds and start_seconds > 0:
         await asyncio.sleep(2)
-        await home_assistant.media_seek(
-            device.ha_entity_id,
+        await kodi.seek(
+            device.kodi_jsonrpc_url,
+            1,
             float(start_seconds),
         )
 
     return {
         "device_key": device_key,
         "ha_entity_id": device.ha_entity_id,
+        "kodi_jsonrpc_url": device.kodi_jsonrpc_url,
         "video_id": video_id,
         "start_seconds": start_seconds or 0,
         "playback_url": plugin_url,
