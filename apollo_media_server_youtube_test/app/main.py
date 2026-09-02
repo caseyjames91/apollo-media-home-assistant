@@ -24,6 +24,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://hass.apollo.home",
         "https://hass.apollo.home",
     ],
     allow_credentials=False,
