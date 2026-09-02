@@ -1,0 +1,8 @@
+{
+  "name": "apollo-youtube-bridge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "youtubei.js": "^18.0.0"
+  }
+}

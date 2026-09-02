@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import devices, discovery, health, integrations, local, media, profiles, progress, sessions, sync
+from app.api import devices, discovery, health, integrations, local, media, profiles, progress, sessions, sync, youtube
 from app.core.config import settings
 from app.db.session import init_db
 
@@ -29,3 +29,4 @@ app.include_router(integrations.router)
 app.include_router(sync.router)
 app.include_router(local.router)
 app.include_router(sessions.router)
+app.include_router(youtube.router)

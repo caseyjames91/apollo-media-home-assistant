@@ -1,6 +1,6 @@
-name: Apollo Media Server
-version: "0.2.14"
-slug: apollo_media_server
+name: Apollo Media Server YouTube Test
+version: "0.2.14-youtube-test"
+slug: apollo_media_server_youtube_test
 description: Apollo-owned profiles, media state, local availability, progress, and playback sessions.
 url: https://github.com/caseyjames91/apollo-media-home-assistant
 arch:
@@ -23,6 +23,6 @@ options:
 schema:
   log_level: list(debug|info|warning|error)
 ports:
-  8099/tcp: 8099
+  8099/tcp: 18100
 ports_description:
   8099/tcp: Apollo API (optional direct access)

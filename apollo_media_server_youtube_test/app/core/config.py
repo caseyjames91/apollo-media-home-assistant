@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     api_port: int = 8099
     log_level: str = "info"
     version: str = "dev"
+    home_assistant_api_url: str = "http://supervisor/core/api"
 
     model_config = SettingsConfigDict(env_prefix="APOLLO_", extra="ignore")
 
