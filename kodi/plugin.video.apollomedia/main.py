@@ -114,6 +114,12 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             tag.setTvShowTitle(str(show_title))
         # Keep Apollo's episode presentation annotation visible in Estuary.
         tag.setTitle(display_label)
+        air_date = str(row.get("air_date") or "").strip()
+        if air_date:
+            try:
+                tag.setFirstAired(air_date[:10])
+            except Exception as exc:
+                xbmc.log(f"[Apollo] first-aired metadata failed: {exc}", xbmc.LOGWARNING)
 
     # Always initialize Kodi state explicitly so a recycled/cached ListItem
     # cannot leak watched/resume metadata from another directory rendering.

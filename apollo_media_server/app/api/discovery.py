@@ -237,11 +237,16 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
     show_raw = await _tmdb_json(integration, f"/tv/{tmdb_id}", {"append_to_response": "external_ids"})
     show = _show_payload(db, str(tmdb_id), show_raw)
     raw = await _tmdb_json(integration, f"/tv/{tmdb_id}/season/{int(season_number)}")
+    show_runtime = next(
+        (int(value) for value in (show_raw.get("episode_run_time") or []) if int(value or 0) > 0),
+        0,
+    )
     episodes=[]
     for row in raw.get("episodes") or []:
         number=int(row.get("episode_number") or 0)
         if number <= 0: continue
         canonical_id=f"tmdb:{tmdb_id}:s{int(season_number)}e{number}"
+        episode_runtime = int(row.get("runtime") or show_runtime or 0)
         episode_row={
             "media_type":"episode", "canonical_id":canonical_id,
             "imdb_id":show.get("imdb_id"), "tmdb_id":str(row.get("id") or ""),
@@ -251,8 +256,8 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
             "overview":row.get("overview"),
             "poster_url":_image(row.get("still_path")) or show.get("poster_url"),
             "backdrop_url":show.get("backdrop_url"), "air_date":row.get("air_date"),
-            "runtime":int(row.get("runtime") or 0),
-            "expected_duration_seconds":int(row.get("runtime") or 0)*60,
+            "runtime":episode_runtime,
+            "expected_duration_seconds":episode_runtime*60,
             "available_locally":False,
         }
         canonical=db.scalar(select(Media).where(
