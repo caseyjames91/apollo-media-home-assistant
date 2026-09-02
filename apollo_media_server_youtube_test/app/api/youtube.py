@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
+import os
+from pathlib import Path
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 
@@ -67,3 +69,25 @@ async def youtube_play(
             status_code=502,
             detail=f"YouTube playback failed: {exc}",
         ) from exc
+
+@router.post("/import-cookie")
+async def youtube_import_cookie(
+    request: Request,
+    x_apollo_import_key: str | None = Header(default=None),
+):
+    expected = os.getenv("APOLLO_YOUTUBE_IMPORT_KEY")
+    if not expected or x_apollo_import_key != expected:
+        raise HTTPException(status_code=403, detail="Invalid import key")
+
+    path = Path("/config/youtube-cookie.txt")
+    if path.exists():
+        raise HTTPException(status_code=409, detail="YouTube cookie already configured")
+
+    cookie = (await request.body()).decode("utf-8").strip()
+    if not cookie:
+        raise HTTPException(status_code=400, detail="Empty cookie")
+
+    path.write_text(cookie + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    return {"configured": True}
