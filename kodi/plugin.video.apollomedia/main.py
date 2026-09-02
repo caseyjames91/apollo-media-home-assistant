@@ -419,6 +419,7 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         actions.extend([
             ("Current Stream Info", f"RunPlugin({url('current_stream_info')})"),
             ("Try Next Stream", f"RunPlugin({url('try_next')})"),
+        ("TEST: Fail Current Stream Start", f"RunPlugin({url('test_fail_current_start')})"),
             ("Flag Current Stream", f"RunPlugin({url('flag_current')})"),
         ])
     return actions
@@ -479,6 +480,7 @@ def _session_params(session):
 
 
 def _resolve_remote(stream, p):
+    source_session.begin_attempt()
     item = xbmcgui.ListItem(path=stream.url if hasattr(stream, "url") else str(stream.get("url") or ""))
     provider_raw = stream.provider if hasattr(stream, "provider") else stream.get("provider")
     title_raw = stream.title if hasattr(stream, "title") else stream.get("title")
@@ -652,6 +654,17 @@ def current_stream_info():
         f"Current Stream • {provider} • {index + 1}/{len(streams)}",
         f"Flagged: {flagged}\n\n{title}",
     )
+
+
+def test_fail_current_start():
+    session = source_session.load() or {}
+    if not source_session.current():
+        notify("No Apollo stream session is available", xbmcgui.NOTIFICATION_WARNING)
+        return
+    source_session.begin_attempt(int(session.get("index") or 0), timeout=12.0, force_fail=True)
+    notify("Test armed: current stream will fail before confirmation", xbmcgui.NOTIFICATION_INFO)
+    xbmc.Player().stop()
+    xbmc.executebuiltin("PlayMedia(" + url("play_session_stream", index=int(session.get("index") or 0)) + ")")
 
 
 def try_next():
@@ -850,6 +863,8 @@ def dispatch():
         current_stream_info()
     elif action == "try_next":
         try_next()
+    elif action == "test_fail_current_start":
+        test_fail_current_start()
     elif action == "flag_current":
         flag_current()
     elif action == "detect_compatibility":

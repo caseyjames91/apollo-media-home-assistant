@@ -120,6 +120,7 @@ def save(streams, imdb_id, media_type, season, episode, title, resume_position=0
         "jellyfin_item_id": str(jellyfin_item_id or ""),
         "streams": rows,
         "flags": flags,
+        "attempts": {"state": "idle", "failed_keys": []},
     }
     with open(_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
@@ -157,6 +158,63 @@ def current():
     raw_index = data.get("index")
     index = int(raw_index if raw_index is not None else -1)
     return streams[index] if 0 <= index < len(streams) else None
+
+
+def _write(data):
+    with open(_path(), "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+    return data
+
+
+def begin_attempt(index=None, timeout=12.0, force_fail=False):
+    data = load()
+    if not data: return None
+    streams = data.get("streams") or []
+    raw_index = data.get("index") if index is None else index
+    try: index = int(raw_index)
+    except Exception: return None
+    if not (0 <= index < len(streams)): return None
+    attempts = dict(data.get("attempts") or {})
+    attempts.update({"state":"requested","index":index,"stream_key":_stream_key(streams[index]),
+        "requested_at":time.time(),"deadline":time.time()+max(1.0,float(timeout or 12.0)),
+        "confirmed_at":0.0,"force_fail":bool(force_fail),
+        "failed_keys":list(attempts.get("failed_keys") or [])})
+    data["index"]=index; data["attempts"]=attempts
+    return _write(data)
+
+
+def confirm_attempt():
+    data=load()
+    if not data: return None
+    attempts=dict(data.get("attempts") or {})
+    if attempts.get("state")=="requested":
+        attempts["state"]="confirmed"; attempts["confirmed_at"]=time.time(); attempts["force_fail"]=False
+        data["attempts"]=attempts; _write(data)
+    return data
+
+
+def fail_attempt(reason="startup_failure"):
+    data=load()
+    if not data: return None,None
+    attempts=dict(data.get("attempts") or {}); streams=data.get("streams") or []
+    try: index=int(attempts.get("index"))
+    except Exception: return data,None
+    if not (0 <= index < len(streams)): return data,None
+    failed=set(attempts.get("failed_keys") or []); failed.update(identity_aliases(streams[index]))
+    attempts.update({"state":"failed","failure_reason":str(reason or "startup_failure"),
+        "failed_at":time.time(),"force_fail":False,"failed_keys":sorted(failed)})
+    data["attempts"]=attempts; _write(data)
+    data,stream=advance(failed_keys=failed)
+    if not stream: return data,None
+    attempts=dict(data.get("attempts") or {})
+    attempts.update({"state":"retry_pending","index":int(data.get("index")),"stream_key":_stream_key(stream),
+        "requested_at":0.0,"deadline":0.0,"confirmed_at":0.0,"force_fail":False,"failed_keys":sorted(failed)})
+    data["attempts"]=attempts; _write(data)
+    return data,stream
+
+
+def attempt_state():
+    return dict((load() or {}).get("attempts") or {})
 
 
 def select(index):
