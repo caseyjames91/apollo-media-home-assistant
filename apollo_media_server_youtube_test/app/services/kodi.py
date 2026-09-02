@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 
 
@@ -25,12 +26,28 @@ async def open_file(url: str, file: str):
     return await jsonrpc(
         url,
         "Player.Open",
-        {
-            "item": {
-                "file": file,
-            }
-        },
+        {"item": {"file": file}},
     )
+
+
+async def wait_for_video_player(
+    url: str,
+    timeout: float = 10.0,
+    interval: float = 0.5,
+) -> int:
+    elapsed = 0.0
+
+    while elapsed < timeout:
+        players = await jsonrpc(url, "Player.GetActivePlayers")
+
+        for player in players or []:
+            if player.get("type") == "video":
+                return int(player["playerid"])
+
+        await asyncio.sleep(interval)
+        elapsed += interval
+
+    raise RuntimeError("Kodi video player did not become ready")
 
 
 async def seek(url: str, player_id: int, seconds: float):

@@ -82,10 +82,12 @@ async def play(
     )
 
     if start_seconds and start_seconds > 0:
-        await asyncio.sleep(2)
+        player_id = await kodi.wait_for_video_player(
+            device.kodi_jsonrpc_url,
+        )
         await kodi.seek(
             device.kodi_jsonrpc_url,
-            1,
+            player_id,
             float(start_seconds),
         )
 
