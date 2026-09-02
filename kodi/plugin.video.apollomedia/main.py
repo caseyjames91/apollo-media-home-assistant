@@ -103,6 +103,8 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     item = xbmcgui.ListItem(label=display_label)
     item.setProperty("IsPlayable", "true")
     apply_common(item, row, title, imdb)
+    # Preserve Apollo's explicit presentation label after Kodi metadata.
+    item.setLabel(display_label)
 
     tag = item.getVideoInfoTag()
     if int(episode or 0) > 0:
@@ -435,6 +437,10 @@ def _remote_params(row, media_type, season=0, episode=0, title="", show_title=""
         episode=int(episode or 0),
         title=str(title or row.get("title") or "Unknown"),
         show_title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
+        year=str(row.get("year") or ""),
+        overview=str(row.get("overview") or ""),
+        poster_url=str(row.get("poster_url") or ""),
+        backdrop_url=str(row.get("backdrop_url") or ""),
         expected_duration=int(row.get("expected_duration_seconds") or (float(row.get("runtime") or 0)*60) or 0),
     )
 
@@ -522,6 +528,12 @@ def _session_params(session):
         "canonical_id": str(session.get("canonical_id") or ""),
         "media_id": str(session.get("media_id") or ""),
         "show_title": str(session.get("show_title") or ""),
+        "tmdb": str(session.get("tmdb") or ""),
+        "year": str(session.get("year") or ""),
+        "overview": str(session.get("overview") or ""),
+        "poster_url": str(session.get("poster_url") or ""),
+        "backdrop_url": str(session.get("backdrop_url") or ""),
+        "expected_duration": int(session.get("expected_duration") or 0),
     }
 
 
@@ -552,6 +564,17 @@ def _resolve_remote(stream, p):
         runtime.setProperty("ApolloExpectedDuration",str(expected_duration))
     else:
         runtime.clearProperty("ApolloExpectedDuration")
+    for key,value in (
+        ("ApolloSeriesTitle",p.get("show_title")),
+        ("ApolloTmdbId",p.get("tmdb")),
+        ("ApolloYear",p.get("year")),
+        ("ApolloOverview",p.get("overview")),
+        ("ApolloPosterUrl",p.get("poster_url")),
+        ("ApolloBackdropUrl",p.get("backdrop_url")),
+    ):
+        value=str(value or "").strip()
+        if value: runtime.setProperty(key,value)
+        else: runtime.clearProperty(key)
 
     tag = item.getVideoInfoTag()
     tag.setTitle(str(p.get("title") or title_raw or "Remote"))
@@ -594,6 +617,12 @@ def _save_source_session(streams, p):
     session["canonical_id"] = str(p.get("canonical_id") or "")
     session["media_id"] = str(p.get("media_id") or "")
     session["show_title"] = str(p.get("show_title") or "")
+    session["tmdb"] = str(p.get("tmdb") or "")
+    session["year"] = str(p.get("year") or "")
+    session["overview"] = str(p.get("overview") or "")
+    session["poster_url"] = str(p.get("poster_url") or "")
+    session["backdrop_url"] = str(p.get("backdrop_url") or "")
+    session["expected_duration"] = int(float(p.get("expected_duration") or 0))
     try:
         import json, os, xbmcvfs
         directory = xbmcvfs.translatePath("special://profile/addon_data/plugin.video.apollomedia")

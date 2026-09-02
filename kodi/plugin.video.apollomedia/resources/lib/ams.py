@@ -226,7 +226,8 @@ def playback_resolution(addon, media_id):
     return request(addon, f"media/{media_id}/playback-resolution?{query}", timeout=10) or {}
 
 
-def report_progress(addon, canonical_id, imdb_id, media_type, season, episode, title, position, duration):
+def report_progress(addon, canonical_id, imdb_id, media_type, season, episode, title, position, duration,
+                    series_title="", tmdb_id="", year=None, overview="", poster_url="", backdrop_url=""):
     if not configured(addon) or not canonical_id:
         return
     season = int(season or 0)
@@ -237,6 +238,12 @@ def report_progress(addon, canonical_id, imdb_id, media_type, season, episode, t
         "canonical_id": str(canonical_id),
         "title": str(title or "Unknown"),
         "imdb_id": str(imdb_id),
+        "tmdb_id": str(tmdb_id or "") or None,
+        "series_title": str(series_title or "") or None,
+        "year": int(year) if year else None,
+        "overview": str(overview or "") or None,
+        "poster_url": str(poster_url or "") or None,
+        "backdrop_url": str(backdrop_url or "") or None,
         "season": season if episode > 0 else None,
         "episode": episode if episode > 0 else None,
         "position_seconds": max(0.0, float(position or 0)),

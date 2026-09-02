@@ -13,7 +13,8 @@ _retry_lock = threading.Lock()
 _retry_in_flight = False
 
 
-def report_async(canonical_id, imdb_id, media_type, season, episode, title, position, duration):
+def report_async(canonical_id, imdb_id, media_type, season, episode, title, position, duration,
+                 series_title="", tmdb_id="", year=None, overview="", poster_url="", backdrop_url=""):
     global _in_flight
     if not canonical_id or duration <= 0:
         return
@@ -28,6 +29,8 @@ def report_async(canonical_id, imdb_id, media_type, season, episode, title, posi
             ams.report_progress(
                 ADDON, canonical_id, imdb_id, media_type, season, episode,
                 title, position, duration,
+                series_title=series_title, tmdb_id=tmdb_id, year=year,
+                overview=overview, poster_url=poster_url, backdrop_url=backdrop_url,
             )
         except Exception as exc:
             xbmc.log(f"[Apollo Media 0.10] AMS progress report failed: {exc}", xbmc.LOGWARNING)
@@ -76,6 +79,12 @@ class MonitorPlayer(xbmc.Player):
         self.last_position = 0.0
         self.last_duration = 0.0
         self.expected_duration = 0.0
+        self.series_title = ""
+        self.tmdb_id = ""
+        self.year = None
+        self.overview = ""
+        self.poster_url = ""
+        self.backdrop_url = ""
 
     def identify(self):
         try:
@@ -100,6 +109,15 @@ class MonitorPlayer(xbmc.Player):
             except Exception:
                 self.expected_duration=0.0
             runtime.clearProperty("ApolloExpectedDuration")
+            self.series_title=str(runtime.getProperty("ApolloSeriesTitle") or tag.getTVShowTitle() or "")
+            self.tmdb_id=str(runtime.getProperty("ApolloTmdbId") or "")
+            try: self.year=int(runtime.getProperty("ApolloYear") or 0) or None
+            except Exception: self.year=None
+            self.overview=str(runtime.getProperty("ApolloOverview") or "")
+            self.poster_url=str(runtime.getProperty("ApolloPosterUrl") or "")
+            self.backdrop_url=str(runtime.getProperty("ApolloBackdropUrl") or "")
+            for key in ("ApolloSeriesTitle","ApolloTmdbId","ApolloYear","ApolloOverview","ApolloPosterUrl","ApolloBackdropUrl"):
+                runtime.clearProperty(key)
         except Exception:
             self.clear()
 
@@ -126,9 +144,12 @@ class MonitorPlayer(xbmc.Player):
                 xbmc.log(f"[ApolloProgress] ignoring implausible duration actual={duration:.1f}s expected={self.expected_duration:.1f}s",xbmc.LOGWARNING)
                 return
         if duration > 0:
+            report_duration=self.expected_duration if self.expected_duration > 0 else duration
             report_async(
                 self.canonical_id, self.imdb, self.media_type, self.season, self.episode,
-                self.title, position, duration,
+                self.title, position, report_duration,
+                self.series_title, self.tmdb_id, self.year,
+                self.overview, self.poster_url, self.backdrop_url,
             )
 
     def onAVStarted(self):

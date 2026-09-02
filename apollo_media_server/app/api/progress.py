@@ -63,12 +63,12 @@ def _upsert_one(db, payload, profile_id):
                 setattr(media, field, value)
     progress = db.scalar(select(Progress).where(Progress.profile_id == profile_id, Progress.media_id == media.id))
     incoming = _utc(payload.updated_at)
+    position, duration = max(0,payload.position_seconds), max(0,payload.duration_seconds)
+    if position < 10:
+        return progress, media, False
     if progress is None:
         progress = Progress(profile_id=profile_id, media_id=media.id); db.add(progress)
     elif incoming < _utc(progress.updated_at):
-        return progress, media, False
-    position, duration = max(0,payload.position_seconds), max(0,payload.duration_seconds)
-    if position < 10:
         return progress, media, False
     remaining=max(0.0,duration-position) if duration > 0 else None
     progress.position_seconds, progress.duration_seconds, progress.updated_at = position, duration, incoming
@@ -85,7 +85,7 @@ def _upsert_one(db, payload, profile_id):
 def upsert_progress(payload: ProgressUpsert, db: Session = Depends(get_db)):
     if db.get(Profile,payload.profile_id) is None: raise HTTPException(status_code=404, detail="Profile not found")
     p,m,changed=_upsert_one(db,payload,payload.profile_id); db.commit()
-    return {"status":"ok","media_id":str(m.id),"changed":changed,"watched":p.watched}
+    return {"status":"ok","media_id":str(m.id),"changed":changed,"watched":bool(p.watched) if p is not None else False}
 
 
 @router.post("/progress/import")

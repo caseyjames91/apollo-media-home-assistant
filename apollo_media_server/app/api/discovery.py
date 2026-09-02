@@ -215,9 +215,9 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
     for row in raw.get("episodes") or []:
         number=int(row.get("episode_number") or 0)
         if number <= 0: continue
-        episodes.append({
-            "media_type":"episode",
-            "canonical_id":f"tmdb:{tmdb_id}:s{int(season_number)}e{number}",
+        canonical_id=f"tmdb:{tmdb_id}:s{int(season_number)}e{number}"
+        episode_row={
+            "media_type":"episode", "canonical_id":canonical_id,
             "imdb_id":show.get("imdb_id"), "tmdb_id":str(row.get("id") or ""),
             "series_tmdb_id":str(tmdb_id), "series_title":show.get("title"),
             "title":str(row.get("name") or f"Episode {number}"),
@@ -228,7 +228,31 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
             "runtime":int(row.get("runtime") or 0),
             "expected_duration_seconds":int(row.get("runtime") or 0)*60,
             "available_locally":False,
-        })
+        }
+        canonical=db.scalar(select(Media).where(
+            Media.media_type=="episode", Media.canonical_id==canonical_id,
+            Media.season==int(season_number), Media.episode==number
+        ))
+        if canonical is None:
+            canonical=Media(
+                media_type="episode", canonical_id=canonical_id,
+                imdb_id=episode_row["imdb_id"], tmdb_id=episode_row["tmdb_id"],
+                title=episode_row["title"], series_title=episode_row["series_title"],
+                overview=episode_row["overview"], poster_url=episode_row["poster_url"],
+                backdrop_url=episode_row["backdrop_url"],
+                season=int(season_number), episode=number,
+            )
+            db.add(canonical); db.flush()
+        else:
+            canonical.imdb_id=episode_row["imdb_id"] or canonical.imdb_id
+            canonical.tmdb_id=episode_row["tmdb_id"] or canonical.tmdb_id
+            canonical.title=episode_row["title"] or canonical.title
+            canonical.series_title=episode_row["series_title"] or canonical.series_title
+            canonical.overview=episode_row["overview"] or canonical.overview
+            canonical.poster_url=episode_row["poster_url"] or canonical.poster_url
+            canonical.backdrop_url=episode_row["backdrop_url"] or canonical.backdrop_url
+        episode_row["media_id"]=str(canonical.id)
+        episodes.append(episode_row)
     if show.get("imdb_id"):
         local_rows=db.scalars(select(Media).where(
             Media.media_type=="episode", Media.imdb_id==show.get("imdb_id"),
@@ -239,7 +263,6 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
             local=local_by_episode.get(int(episode["episode"]))
             if local is None: continue
             episode.update({
-                "media_id":str(local.id), "canonical_id":local.canonical_id,
                 "imdb_id":local.imdb_id or show.get("imdb_id"),
                 "title":local.title or episode["title"],
                 "overview":local.overview or episode["overview"],

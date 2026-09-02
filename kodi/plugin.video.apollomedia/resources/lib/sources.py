@@ -86,7 +86,7 @@ def _cached_payload_playable(payload):
         return bool(payload)
     files=payload.get("files") or payload.get("file_list") or payload.get("filelist") or []
     if not files:
-        return True
+        return False
     names=[_file_name(row).lower() for row in files]
     names=[name for name in names if name]
     if not names:
@@ -122,10 +122,12 @@ def _apply_cache_evidence(streams, token, provider_asserted=False):
         key=str(stream.info_hash or "").strip().lower()
         if key and key in checked:
             stream.cached=bool(checked[key]); stream.playable=bool(checked[key])
-        elif provider_asserted:
+        elif provider_asserted and key:
             stream.cached=True
         else:
             stream.cached=None
+            if provider_asserted:
+                stream.playable=False
     return streams
 
 def _cached_playable_only(streams):
