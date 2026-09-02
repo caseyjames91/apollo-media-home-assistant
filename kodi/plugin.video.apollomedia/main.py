@@ -226,7 +226,9 @@ def library_shows():
             if not imdb:
                 continue
             title = str(row.get("title") or "Unknown")
-            folder(title, url("show", imdb=imdb, title=title), row, imdb)
+            tmdb = str(row.get("tmdb_id") or "").strip()
+            target = url("discovery_show", tmdb=tmdb, imdb=imdb, title=title) if tmdb else url("show", imdb=imdb, title=title)
+            folder(title, target, row, imdb)
     except Exception as exc:
         notify(f"AMS show library failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("tvshows")
@@ -372,10 +374,15 @@ def discovery_show(p):
         for row in details.get("seasons") or []:
             season_number = int(row.get("season") or 0)
             label = str(row.get("title") or ("Specials" if season_number == 0 else f"Season {season_number}"))
+            season_row = {
+                "title": label,
+                "year": details.get("year"),
+                "poster_url": row.get("poster_url") or details.get("poster_url"),
+                "backdrop_url": details.get("backdrop_url"),
+                "overview": row.get("overview") or details.get("overview"),
+            }
             folder(label, url("discovery_season", tmdb=tmdb, imdb=imdb,
-                              season=season_number, title=title),
-                   {"title":label, "poster_url":row.get("poster_url"),
-                    "overview":row.get("overview")}, imdb)
+                              season=season_number, title=title), season_row, imdb)
     except Exception as exc:
         notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("seasons")
@@ -461,6 +468,16 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
     if int(episode or 0) > 0:
+        actions.append((
+            "Go to Season",
+            "Container.Update(" + url(
+                "go_to_season",
+                imdb=str(row.get("imdb_id") or ""),
+                series_tmdb=str(row.get("series_tmdb_id") or ""),
+                season=int(season or 0),
+                title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
+            ) + ")",
+        ))
         actions.append((
             "Go to Series",
             "Container.Update(" + url(
@@ -608,7 +625,15 @@ def _resolve_remote(stream, p):
         if show_title:
             tag.setTvShowTitle(show_title)
 
-    position, duration = ams.resume(ADDON, imdb, season, episode)
+    session = source_session.load() or {}
+    resume_mode = str(session.get("resume_mode") or "native")
+    if resume_mode == "beginning":
+        position, duration = 0.0, 0.0
+    elif resume_mode == "fixed":
+        position = max(0.0, float(session.get("resume_position") or 0))
+        duration = max(0.0, float(session.get("resume_duration") or 0))
+    else:
+        position, duration = ams.resume(ADDON, imdb, season, episode)
     if position > 0 and duration > 0:
         tag.setResumePoint(position, duration)
 
@@ -739,6 +764,27 @@ def play_remote(p, choose=False):
         notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
         xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
 
+
+def go_to_season(p):
+    imdb=str(p.get("imdb") or "").strip()
+    tmdb=str(p.get("series_tmdb") or "").strip()
+    title=str(p.get("title") or "Show")
+    season_number=int(p.get("season") or 0)
+    try:
+        if not tmdb and imdb:
+            identity=ams.series_identity(ADDON,imdb)
+            tmdb=str(identity.get("tmdb_id") or "").strip()
+            title=str(identity.get("title") or title)
+        if tmdb:
+            discovery_season({"tmdb":tmdb,"imdb":imdb,"season":season_number,"title":title})
+            return
+        if imdb:
+            season(imdb,season_number,title)
+            return
+        raise RuntimeError("Season identity is unavailable")
+    except Exception as exc:
+        notify(f"Unable to open season: {exc}",xbmcgui.NOTIFICATION_ERROR)
+        xbmcplugin.endOfDirectory(HANDLE,succeeded=False,cacheToDisc=False)
 
 def go_to_series(p):
     imdb = str(p.get("imdb") or "").strip()
@@ -980,6 +1026,8 @@ def dispatch():
         discovery_show(p)
     elif action == "discovery_season":
         discovery_season(p)
+    elif action == "go_to_season":
+        go_to_season(p)
     elif action == "go_to_series":
         go_to_series(p)
     elif action == "play_remote":
