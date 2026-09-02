@@ -153,6 +153,103 @@ async def trending(media_type: str, db: Session = Depends(get_db)):
     return await _request(db, f"/trending/{tmdb_kind}/week", kind)
 
 
+def _show_payload(db: Session, tmdb_id: str, raw: dict) -> dict:
+    media = _existing(db, "show", tmdb_id)
+    external = raw.get("external_ids") or {}
+    imdb_id = str(external.get("imdb_id") or "").strip() or None
+    if media is None:
+        media = Media(
+            media_type="show", canonical_id=f"tmdb:{tmdb_id}", tmdb_id=tmdb_id,
+            imdb_id=imdb_id,
+            title=str(raw.get("name") or raw.get("original_name") or "Unknown"),
+            year=_year(raw.get("first_air_date")), overview=raw.get("overview"),
+            poster_url=_image(raw.get("poster_path")),
+            backdrop_url=_image(raw.get("backdrop_path")),
+        )
+        db.add(media); db.flush()
+    else:
+        if imdb_id: media.imdb_id = imdb_id
+        media.title = str(raw.get("name") or media.title or "Unknown")
+        media.year = _year(raw.get("first_air_date")) or media.year
+        media.overview = raw.get("overview") or media.overview
+        media.poster_url = _image(raw.get("poster_path")) or media.poster_url
+        media.backdrop_url = _image(raw.get("backdrop_path")) or media.backdrop_url
+    return {
+        "media_id": str(media.id), "media_type": "show",
+        "canonical_id": media.canonical_id, "imdb_id": media.imdb_id,
+        "tmdb_id": media.tmdb_id, "title": media.title, "year": media.year,
+        "overview": media.overview, "poster_url": media.poster_url,
+        "backdrop_url": media.backdrop_url,
+        "available_locally": _local(db, media),
+    }
+
+async def _tmdb_json(integration: Integration, path: str, params: dict | None = None) -> dict:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        response = await client.get(
+            f"{_base(integration)}{path}", headers=_headers(integration), params=params or {}
+        )
+        response.raise_for_status()
+        return response.json() or {}
+
+@router.get("/show/{tmdb_id}")
+async def show_details(tmdb_id: str, db: Session = Depends(get_db)):
+    integration = _integration(db)
+    raw = await _tmdb_json(integration, f"/tv/{tmdb_id}", {"append_to_response": "external_ids"})
+    result = _show_payload(db, str(tmdb_id), raw)
+    result["seasons"] = [{
+        "season": int(row.get("season_number") or 0),
+        "title": str(row.get("name") or ("Specials" if int(row.get("season_number") or 0) == 0 else f"Season {int(row.get('season_number') or 0)}")),
+        "overview": row.get("overview"), "poster_url": _image(row.get("poster_path")),
+        "air_date": row.get("air_date"), "episode_count": int(row.get("episode_count") or 0),
+    } for row in (raw.get("seasons") or [])]
+    db.commit()
+    return result
+
+@router.get("/show/{tmdb_id}/season/{season_number}")
+async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(get_db)):
+    integration = _integration(db)
+    show_raw = await _tmdb_json(integration, f"/tv/{tmdb_id}", {"append_to_response": "external_ids"})
+    show = _show_payload(db, str(tmdb_id), show_raw)
+    raw = await _tmdb_json(integration, f"/tv/{tmdb_id}/season/{int(season_number)}")
+    episodes=[]
+    for row in raw.get("episodes") or []:
+        number=int(row.get("episode_number") or 0)
+        if number <= 0: continue
+        episodes.append({
+            "media_type":"episode",
+            "canonical_id":f"tmdb:{tmdb_id}:s{int(season_number)}e{number}",
+            "imdb_id":show.get("imdb_id"), "tmdb_id":str(row.get("id") or ""),
+            "series_tmdb_id":str(tmdb_id), "series_title":show.get("title"),
+            "title":str(row.get("name") or f"Episode {number}"),
+            "season":int(season_number), "episode":number,
+            "overview":row.get("overview"),
+            "poster_url":_image(row.get("still_path")) or show.get("poster_url"),
+            "backdrop_url":show.get("backdrop_url"), "air_date":row.get("air_date"),
+            "available_locally":False,
+        })
+    if show.get("imdb_id"):
+        local_rows=db.scalars(select(Media).where(
+            Media.media_type=="episode", Media.imdb_id==show.get("imdb_id"),
+            Media.season==int(season_number)
+        )).all()
+        local_by_episode={int(row.episode or 0):row for row in local_rows}
+        for episode in episodes:
+            local=local_by_episode.get(int(episode["episode"]))
+            if local is None: continue
+            episode.update({
+                "media_id":str(local.id), "canonical_id":local.canonical_id,
+                "imdb_id":local.imdb_id or show.get("imdb_id"),
+                "title":local.title or episode["title"],
+                "overview":local.overview or episode["overview"],
+                "poster_url":local.poster_url or episode["poster_url"],
+                "backdrop_url":local.backdrop_url or episode["backdrop_url"],
+                "available_locally":_local(db, local),
+            })
+    db.commit()
+    return {"show":show, "season":int(season_number),
+            "title":str(raw.get("name") or f"Season {int(season_number)}"),
+            "episodes":episodes}
+
 @router.get("/search/{media_type}")
 async def search_media(
     media_type: str,

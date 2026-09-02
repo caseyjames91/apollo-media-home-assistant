@@ -246,6 +246,18 @@ def report_progress(addon, canonical_id, imdb_id, media_type, season, episode, t
     request(addon, "progress", method="PUT", payload=payload, timeout=5)
 
 
+def discovery_show(addon, tmdb_id):
+    tmdb_id = str(tmdb_id or "").strip()
+    if not tmdb_id: raise RuntimeError("Discovery show requires a TMDB identity")
+    result = request(addon, f"discovery/show/{tmdb_id}", timeout=20) or {}
+    return result if isinstance(result, dict) else {}
+
+def discovery_season(addon, tmdb_id, season):
+    tmdb_id = str(tmdb_id or "").strip()
+    if not tmdb_id: raise RuntimeError("Discovery season requires a TMDB identity")
+    result = request(addon, f"discovery/show/{tmdb_id}/season/{int(season)}", timeout=20) or {}
+    return result if isinstance(result, dict) else {}
+
 def discovery(addon, mode, media_type, query=""):
     mode = str(mode or "").strip().lower()
     media_type = str(media_type or "").strip().lower()

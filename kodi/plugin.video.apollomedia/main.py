@@ -350,16 +350,42 @@ def search(media_type):
 
 
 def discovery_show(p):
-    # Local discovery results enter the exact same show -> season -> episode
-    # route as Library. Remote-only show actions arrive with the provider stage.
-    if str(p.get("available_locally") or "") == "1" and p.get("imdb"):
-        show(p.get("imdb"), p.get("title") or "Show")
-        return
+    tmdb = str(p.get("tmdb") or "").strip()
+    if not tmdb:
+        notify("Show is missing its TMDB identity", xbmcgui.NOTIFICATION_ERROR)
+        end("seasons"); return
+    try:
+        details = ams.discovery_show(ADDON, tmdb)
+        title = str(details.get("title") or p.get("title") or "Show")
+        imdb = str(details.get("imdb_id") or p.get("imdb") or "")
+        for row in details.get("seasons") or []:
+            season_number = int(row.get("season") or 0)
+            label = str(row.get("title") or ("Specials" if season_number == 0 else f"Season {season_number}"))
+            folder(label, url("discovery_season", tmdb=tmdb, imdb=imdb,
+                              season=season_number, title=title),
+                   {"title":label, "poster_url":row.get("poster_url"),
+                    "overview":row.get("overview")}, imdb)
+    except Exception as exc:
+        notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    end("seasons")
+
+def discovery_season(p):
+    tmdb = str(p.get("tmdb") or "").strip()
+    season_number = int(p.get("season") or 0)
     title = str(p.get("title") or "Show")
-    item = xbmcgui.ListItem(label="Remote playback coming in provider stage")
-    item.setProperty("IsPlayable", "false")
-    xbmcplugin.addDirectoryItem(HANDLE, url("remote_pending", title=title), item, False)
-    end("files")
+    try:
+        result = ams.discovery_season(ADDON, tmdb, season_number)
+        show_row = result.get("show") or {}
+        show_title = str(show_row.get("title") or title)
+        for row in result.get("episodes") or []:
+            episode = int(row.get("episode") or 0)
+            ep_title = str(row.get("title") or f"Episode {episode}")
+            playable_media(row, "series", label=f"{episode}. {ep_title}",
+                           season=season_number, episode=episode,
+                           show_title=show_title)
+    except Exception as exc:
+        notify(f"AMS episodes failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    end("episodes")
 
 
 def _bool_setting(name, default=True):
@@ -853,6 +879,8 @@ def dispatch():
         search(p.get("media_type") or "movie")
     elif action == "discovery_show":
         discovery_show(p)
+    elif action == "discovery_season":
+        discovery_season(p)
     elif action == "play_remote":
         play_remote(p,False)
     elif action == "play_remote_choose":
@@ -873,9 +901,6 @@ def dispatch():
         link_torbox()
     elif action == "play_local":
         play_local(p)
-    elif action == "remote_pending":
-        notify("Remote/TorBox playback is intentionally not in the AMS-core test build")
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
     elif action == "settings":
         settings()
     else:
