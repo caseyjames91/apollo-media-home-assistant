@@ -68,13 +68,16 @@ def _upsert_one(db, payload, profile_id):
     elif incoming < _utc(progress.updated_at):
         return progress, media, False
     position, duration = max(0,payload.position_seconds), max(0,payload.duration_seconds)
-    fraction = position / duration if duration > 0 else 0
+    if position < 10:
+        return progress, media, False
+    remaining=max(0.0,duration-position) if duration > 0 else None
     progress.position_seconds, progress.duration_seconds, progress.updated_at = position, duration, incoming
-    if fraction >= .90:
-        progress.watched = True
-        progress.watched_at = progress.watched_at or incoming
-    elif position > 0:
-        progress.watched = False; progress.watched_at = None
+    if remaining is not None and remaining <= 20:
+        progress.watched=True
+        progress.watched_at=progress.watched_at or incoming
+    else:
+        progress.watched=False
+        progress.watched_at=None
     return progress, media, True
 
 
@@ -129,8 +132,10 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
     rows=db.execute(select(Progress,Media).join(Media,Media.id==Progress.media_id).where(Progress.profile_id==profile_id).order_by(Progress.updated_at.desc())).all()
     out=[]
     for p,m in rows:
-        duration=max(0,p.duration_seconds); fraction=p.position_seconds/duration if duration else 0
-        if p.position_seconds <= 0 or p.watched or fraction >= .90: continue
+        duration=max(0,p.duration_seconds)
+        remaining=max(0.0,duration-p.position_seconds) if duration else None
+        if p.position_seconds < 10 or p.watched or (remaining is not None and remaining <= 20): continue
+        fraction=p.position_seconds/duration if duration else 0
         local=db.scalar(select(LocalAvailability).where(LocalAvailability.media_id==m.id,LocalAvailability.available.is_(True)))
         out.append(ContinueWatchingItem(
             media_id=m.id,

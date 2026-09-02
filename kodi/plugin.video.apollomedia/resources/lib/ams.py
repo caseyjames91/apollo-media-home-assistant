@@ -258,13 +258,15 @@ def discovery_season(addon, tmdb_id, season):
     result = request(addon, f"discovery/show/{tmdb_id}/season/{int(season)}", timeout=20) or {}
     return result if isinstance(result, dict) else {}
 
-def discovery(addon, mode, media_type, query=""):
+def discovery(addon, mode, media_type, query="", page=1):
     mode = str(mode or "").strip().lower()
     media_type = str(media_type or "").strip().lower()
     if mode not in {"popular", "trending", "search"}:
         raise RuntimeError(f"Unsupported discovery mode: {mode}")
     path = f"discovery/{mode}/{media_type}"
+    params={"page":max(1,int(page or 1))}
     if mode == "search":
-        path += "?" + urlencode({"q": str(query or "").strip()})
+        params["q"]=str(query or "").strip()
+    path += "?" + urlencode(params)
     rows = request(addon, path, timeout=20) or []
     return rows if isinstance(rows, list) else []

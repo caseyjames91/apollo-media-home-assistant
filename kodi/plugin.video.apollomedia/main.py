@@ -1,5 +1,6 @@
 import sys
 import time
+from datetime import date, datetime
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -315,21 +316,25 @@ def _canonical_detail_target(row):
     )
 
 
-def discovery_list(mode, media_type):
+def discovery_list(mode, media_type, page=1):
+    page=max(1,int(page or 1))
     try:
-        rows=ams.discovery(ADDON,mode,media_type)
+        rows=ams.discovery(ADDON,mode,media_type,page=page)
         for row in rows:
             title=str(row.get("title") or "Unknown")
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
                 folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
+        if len(rows) >= 20:
+            folder("More Results",url("discovery",mode=mode,media_type=media_type,page=page+1))
     except Exception as exc:
         notify(f"AMS discovery failed: {exc}",xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type=="movie" else "tvshows")
 
-def search(media_type):
-    query = xbmcgui.Dialog().input(
+def search(media_type, query="", page=1):
+    page=max(1,int(page or 1))
+    query = str(query or "").strip() or xbmcgui.Dialog().input(
         "Search Movies" if media_type == "movie" else "Search Shows",
         type=xbmcgui.INPUT_ALPHANUM,
     ).strip()
@@ -337,13 +342,15 @@ def search(media_type):
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
         return
     try:
-        rows = ams.discovery(ADDON, "search", media_type, query)
+        rows = ams.discovery(ADDON, "search", media_type, query, page=page)
         for row in rows:
             title = str(row.get("title") or "Unknown")
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
                 folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
+        if len(rows) >= 20:
+            folder("More Results",url("search",media_type=media_type,query=query,page=page+1))
     except Exception as exc:
         notify(f"AMS search failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type == "movie" else "tvshows")
@@ -369,6 +376,15 @@ def discovery_show(p):
         notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("seasons")
 
+def _episode_air_label(air_date):
+    value=str(air_date or "").strip()
+    if not value: return ""
+    try: target=datetime.strptime(value[:10],"%Y-%m-%d").date()
+    except Exception: return ""
+    today=date.today()
+    if target <= today: return ""
+    return "Airs " + target.strftime("%b %d").replace(" 0"," ")
+
 def discovery_season(p):
     tmdb = str(p.get("tmdb") or "").strip()
     season_number = int(p.get("season") or 0)
@@ -380,7 +396,9 @@ def discovery_season(p):
         for row in result.get("episodes") or []:
             episode = int(row.get("episode") or 0)
             ep_title = str(row.get("title") or f"Episode {episode}")
-            playable_media(row, "series", label=f"{episode}. {ep_title}",
+            air_label=_episode_air_label(row.get("air_date"))
+            label=f"{episode}. {ep_title}" + (f"  •  {air_label}" if air_label else "")
+            playable_media(row, "series", label=label,
                            season=season_number, episode=episode,
                            show_title=show_title)
     except Exception as exc:
@@ -417,6 +435,7 @@ def _remote_params(row, media_type, season=0, episode=0, title="", show_title=""
         episode=int(episode or 0),
         title=str(title or row.get("title") or "Unknown"),
         show_title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
+        expected_duration=int(row.get("expected_duration_seconds") or (float(row.get("runtime") or 0)*60) or 0),
     )
 
 
@@ -451,7 +470,7 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
     return actions
 
 
-def _stream_candidates(p):
+def _stream_candidates(p, cached_only=True):
     imdb = str(p.get("imdb") or "").strip()
     if not imdb:
         media_id = str(p.get("media_id") or "").strip()
@@ -488,6 +507,7 @@ def _stream_candidates(p):
         int(p.get("episode") or 0) if media_type == "series" else None,
         _remote_profile(),
         ADDON.getSettingString("debridio_url"),
+        cached_only=bool(cached_only),
     )
 
 
@@ -527,6 +547,11 @@ def _resolve_remote(stream, p):
         runtime.setProperty("ApolloCanonicalId", canonical_id)
     if media_id:
         runtime.setProperty("ApolloMediaId", media_id)
+    expected_duration=int(float(p.get("expected_duration") or 0))
+    if expected_duration > 0:
+        runtime.setProperty("ApolloExpectedDuration",str(expected_duration))
+    else:
+        runtime.clearProperty("ApolloExpectedDuration")
 
     tag = item.getVideoInfoTag()
     tag.setTitle(str(p.get("title") or title_raw or "Remote"))
@@ -627,7 +652,13 @@ def _choose_stream_dialog():
 
 def play_remote(p, choose=False):
     try:
-        streams = _stream_candidates(p)
+        cached_only=str(p.get("cached_only") or "1") != "0"
+        streams=_stream_candidates(p,cached_only=cached_only)
+        if not streams and cached_only:
+            if xbmcgui.Dialog().yesno("Apollo Media","No cached playable streams were found.","Search uncached sources?"):
+                retry=dict(p); retry["cached_only"]="0"
+                streams=_stream_candidates(retry,cached_only=False)
+                p=retry
         if not streams:
             notify("No compatible remote streams found", xbmcgui.NOTIFICATION_WARNING)
             xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
@@ -874,9 +905,9 @@ def dispatch():
     elif action == "continue":
         continue_watching()
     elif action == "discovery":
-        discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie")
+        discovery_list(p.get("mode") or "popular",p.get("media_type") or "movie",int(p.get("page") or 1))
     elif action == "search":
-        search(p.get("media_type") or "movie")
+        search(p.get("media_type") or "movie",p.get("query") or "",int(p.get("page") or 1))
     elif action == "discovery_show":
         discovery_show(p)
     elif action == "discovery_season":

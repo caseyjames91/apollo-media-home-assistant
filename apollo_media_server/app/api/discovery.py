@@ -140,17 +140,17 @@ async def _request(db: Session, path: str, media_type: str, params: dict | None 
 
 
 @router.get("/popular/{media_type}")
-async def popular(media_type: str, db: Session = Depends(get_db)):
+async def popular(media_type: str, page: int = Query(default=1, ge=1, le=500), db: Session = Depends(get_db)):
     kind = _kind(media_type)
     tmdb_kind = "movie" if kind == "movie" else "tv"
-    return await _request(db, f"/{tmdb_kind}/popular", kind)
+    return await _request(db, f"/{tmdb_kind}/popular", kind, {"page": page})
 
 
 @router.get("/trending/{media_type}")
-async def trending(media_type: str, db: Session = Depends(get_db)):
+async def trending(media_type: str, page: int = Query(default=1, ge=1, le=500), db: Session = Depends(get_db)):
     kind = _kind(media_type)
     tmdb_kind = "movie" if kind == "movie" else "tv"
-    return await _request(db, f"/trending/{tmdb_kind}/week", kind)
+    return await _request(db, f"/trending/{tmdb_kind}/week", kind, {"page": page})
 
 
 def _show_payload(db: Session, tmdb_id: str, raw: dict) -> dict:
@@ -225,6 +225,8 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
             "overview":row.get("overview"),
             "poster_url":_image(row.get("still_path")) or show.get("poster_url"),
             "backdrop_url":show.get("backdrop_url"), "air_date":row.get("air_date"),
+            "runtime":int(row.get("runtime") or 0),
+            "expected_duration_seconds":int(row.get("runtime") or 0)*60,
             "available_locally":False,
         })
     if show.get("imdb_id"):
@@ -254,6 +256,7 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
 async def search_media(
     media_type: str,
     q: str = Query(min_length=1, max_length=200),
+    page: int = Query(default=1, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     kind = _kind(media_type)
@@ -262,7 +265,7 @@ async def search_media(
         db,
         f"/search/{tmdb_kind}",
         kind,
-        {"query": q, "include_adult": "false"},
+        {"query": q, "include_adult": "false", "page": page},
     )
 
 

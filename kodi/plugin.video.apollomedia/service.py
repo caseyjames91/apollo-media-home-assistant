@@ -75,6 +75,7 @@ class MonitorPlayer(xbmc.Player):
         self.title = ""
         self.last_position = 0.0
         self.last_duration = 0.0
+        self.expected_duration = 0.0
 
     def identify(self):
         try:
@@ -94,6 +95,11 @@ class MonitorPlayer(xbmc.Player):
             self.episode = max(0, int(tag.getEpisode()))
             self.media_type = "series" if self.episode > 0 else "movie"
             self.title = str(tag.getTitle() or "Unknown")
+            try:
+                self.expected_duration=max(0.0,float(runtime.getProperty("ApolloExpectedDuration") or 0))
+            except Exception:
+                self.expected_duration=0.0
+            runtime.clearProperty("ApolloExpectedDuration")
         except Exception:
             self.clear()
 
@@ -112,6 +118,13 @@ class MonitorPlayer(xbmc.Player):
         if not self.canonical_id:
             return
         position, duration = self.sample()
+        if position < 10.0:
+            return
+        if self.expected_duration > 0 and duration > 0:
+            ratio=duration/self.expected_duration
+            if ratio < 0.50 or ratio > 1.75:
+                xbmc.log(f"[ApolloProgress] ignoring implausible duration actual={duration:.1f}s expected={self.expected_duration:.1f}s",xbmc.LOGWARNING)
+                return
         if duration > 0:
             report_async(
                 self.canonical_id, self.imdb, self.media_type, self.season, self.episode,
