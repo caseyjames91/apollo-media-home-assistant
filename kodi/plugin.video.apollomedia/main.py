@@ -642,7 +642,14 @@ def _resolve_remote(stream, p):
         position = max(0.0, float(session.get("resume_position") or 0))
         duration = max(0.0, float(session.get("resume_duration") or 0))
     else:
-        position, duration = ams.resume(ADDON, imdb, season, episode)
+        # The source session snapshots the native resume baseline before the
+        # first candidate opens. That gives onAVStarted enough context to
+        # distinguish "Resume" from "Play from beginning", and every fallback
+        # candidate can then inherit the user's single playback decision.
+        position = max(0.0, float(session.get("resume_position") or 0))
+        duration = max(0.0, float(session.get("resume_duration") or 0))
+        if position <= 0 or duration <= 0:
+            position, duration = ams.resume(ADDON, imdb, season, episode)
     if position > 0 and duration > 0:
         tag.setResumePoint(position, duration)
 
@@ -651,13 +658,20 @@ def _resolve_remote(stream, p):
 
 
 def _save_source_session(streams, p):
+    imdb = str(p.get("imdb") or "")
+    season = int(p.get("season") or 0)
+    episode = int(p.get("episode") or 0)
+    resume_position, resume_duration = ams.resume(ADDON, imdb, season, episode)
     session = source_session.save(
         streams,
-        str(p.get("imdb") or ""),
-        "series" if int(p.get("episode") or 0) > 0 or str(p.get("media_type") or "") in ("series", "episode", "show") else "movie",
-        int(p.get("season") or 0),
-        int(p.get("episode") or 0),
+        imdb,
+        "series" if episode > 0 or str(p.get("media_type") or "") in ("series", "episode", "show") else "movie",
+        season,
+        episode,
         str(p.get("title") or "Remote"),
+        resume_position=resume_position,
+        resume_duration=resume_duration,
+        resume_mode="native",
     )
     # Preserve canonical Apollo identity alongside the proven session format.
     session["canonical_id"] = str(p.get("canonical_id") or "")
