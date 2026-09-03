@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "baseline",
+  "name": "0.10.27",
+  "notes": "Last release before automatic bad-stream/RAR fallback work began. Historical baseline, not asserted runtime-stable for every behavior.",
+  "monorepo": {
+    "tag": "0.10.27",
+    "commit": "c15c340fc0445a6af0deab5841e722784a89e654"
+  },
+  "kodi": {
+    "version": "0.10.27"
+  },
+  "ams": {
+    "version": "0.2.14",
+    "last_component_commit": "271117b330e8f1c23af8c7f9e2805984a4a9cb9c"
+  },
+  "hacs": {
+    "tag": "0.10.27",
+    "commit": "7bfd20b31924022f9f282cb2747024b8ff83464c"
+  }
+}
