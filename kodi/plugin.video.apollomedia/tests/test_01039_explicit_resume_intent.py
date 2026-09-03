@@ -19,4 +19,5 @@ class ResumeIntent039(unittest.TestCase):
  def test_old_runtime_heuristic_cannot_override_explicit_choice(self):
   self.assertIn('if str(session.get("resume_mode") or "native") != "native":',S)
  def test_fallback_reuses_session(self):
-  self.assertIn('_plugin_url("play_session_stream",index=index)',S)
+  self.assertIn('source_session.claim_pending_retry()',S)
+  self.assertIn('launching deferred retry index=',S)
