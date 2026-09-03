@@ -4,15 +4,17 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$ROOT" ]] || { echo "ERROR: run inside the Apollo monorepo" >&2; exit 1; }
 cd "$ROOT"
+
 HACS_REPO="${APOLLO_HACS_REPO:-/home/apollo/apollo-media-card}"
 
 fail(){ echo "ERROR: $*" >&2; exit 1; }
+
 usage(){
   cat <<'USAGE'
 Usage:
   ./scripts/apollo show <version>
   ./scripts/apollo mark-stable <version>
-  ./scripts/apollo rollback <version>
+  ./scripts/apollo rollback [--dry-run] <version>
 
 Commands:
   show         Display the recorded baseline/stable snapshot.
@@ -20,6 +22,10 @@ Commands:
   rollback     Restore the recorded Kodi + AMS + card + release-contract source
                into the working tree as a forward-release candidate. It does not
                publish, push, tag, or rewrite Git history.
+
+Options:
+  --dry-run    Verify the snapshot and show the exact candidate diff without
+               modifying either working tree.
 USAGE
 }
 
@@ -46,7 +52,8 @@ json_get(){
 import json,sys
 p=sys.argv[2].split('.')
 v=json.load(open(sys.argv[1],encoding='utf-8'))
-for k in p: v=v[k]
+for k in p:
+    v=v[k]
 print(v)
 PY
 }
@@ -61,10 +68,15 @@ mark_stable_cmd(){
   local v="$1"
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must look like X.Y.Z"
   require_clean
+
   git fetch origin --tags >/dev/null
   git -C "$HACS_REPO" fetch origin --tags >/dev/null
-  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "monorepo is not synchronized with origin/main"
-  [[ "$(git -C "$HACS_REPO" rev-parse HEAD)" == "$(git -C "$HACS_REPO" rev-parse origin/main)" ]] || fail "HACS repo is not synchronized with origin/main"
+
+  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] \
+    || fail "monorepo is not synchronized with origin/main"
+  [[ "$(git -C "$HACS_REPO" rev-parse HEAD)" == "$(git -C "$HACS_REPO" rev-parse origin/main)" ]] \
+    || fail "HACS repo is not synchronized with origin/main"
+
   git rev-parse "$v^{commit}" >/dev/null 2>&1 || fail "monorepo tag $v not found"
   git -C "$HACS_REPO" rev-parse "$v^{commit}" >/dev/null 2>&1 || fail "HACS tag $v not found"
   [[ ! -e "releases/stable/$v.json" ]] || fail "stable manifest already exists for $v"
@@ -73,8 +85,9 @@ mark_stable_cmd(){
   mono="$(git rev-parse "$v^{commit}")"
   hacs="$(git -C "$HACS_REPO" rev-parse "$v^{commit}")"
   kodi="$(git show "$v:kodi/plugin.video.apollomedia/addon.xml" | python3 -c 'import sys,xml.etree.ElementTree as ET; print(ET.fromstring(sys.stdin.read()).attrib["version"])')"
-  ams="$(git show "$v:apollo_media_server/config.yaml" | awk -F'\"' '/^version:/ {print $2; exit}')"
+  ams="$(git show "$v:apollo_media_server/config.yaml" | awk -F'"' '/^version:/ {print $2; exit}')"
   ams_component="$(git log -1 --format=%H "$v" -- apollo_media_server)"
+
   [[ "$kodi" == "$v" ]] || fail "Kodi version at tag $v is $kodi"
   [[ -n "$ams" ]] || fail "could not determine AMS version at tag $v"
 
@@ -83,42 +96,70 @@ mark_stable_cmd(){
 import json,sys
 v,mono,kodi,ams,ams_component,hacs=sys.argv[1:]
 obj={
- "schema":1,"kind":"stable","name":v,
- "notes":"Runtime-approved stable Apollo stack.",
- "monorepo":{"tag":v,"commit":mono},
- "kodi":{"version":kodi},
- "ams":{"version":ams,"last_component_commit":ams_component},
- "hacs":{"tag":v,"commit":hacs},
+    "schema":1,
+    "kind":"stable",
+    "name":v,
+    "notes":"Runtime-approved stable Apollo stack.",
+    "monorepo":{"tag":v,"commit":mono},
+    "kodi":{"version":kodi},
+    "ams":{"version":ams,"last_component_commit":ams_component},
+    "hacs":{"tag":v,"commit":hacs},
 }
-json.dump(obj,sys.stdout,indent=2); print()
+json.dump(obj,sys.stdout,indent=2)
+print()
 PY
+
   python3 -m json.tool "releases/stable/$v.json" >/dev/null
   git add "releases/stable/$v.json"
   git diff --cached --check
+
   echo "PASS: stable manifest prepared: releases/stable/$v.json"
   echo "Review it, then commit/push it. No tag or release was changed."
 }
 
 rollback_cmd(){
-  local v="$1" mf mono hacs kodi ams
+  local v="$1"
+  local dry_run="${2:-false}"
+  local mf mono mono_tag hacs hacs_tag kodi ams
+
   require_clean
   mf="$(manifest_for "$v")"
+
   mono="$(json_get "$mf" monorepo.commit)"
+  mono_tag="$(json_get "$mf" monorepo.tag)"
   hacs="$(json_get "$mf" hacs.commit)"
+  hacs_tag="$(json_get "$mf" hacs.tag)"
   kodi="$(json_get "$mf" kodi.version)"
   ams="$(json_get "$mf" ams.version)"
 
-  git cat-file -e "$mono^{commit}" 2>/dev/null || fail "monorepo snapshot commit $mono is unavailable"
-  git -C "$HACS_REPO" cat-file -e "$hacs^{commit}" 2>/dev/null || fail "HACS snapshot commit $hacs is unavailable"
+  # Refresh refs before validating immutable snapshot identities.
+  git fetch origin --tags >/dev/null
+  git -C "$HACS_REPO" fetch origin --tags >/dev/null
+
+  git cat-file -e "$mono^{commit}" 2>/dev/null \
+    || fail "monorepo snapshot commit $mono is unavailable"
+  git -C "$HACS_REPO" cat-file -e "$hacs^{commit}" 2>/dev/null \
+    || fail "HACS snapshot commit $hacs is unavailable"
+
+  local resolved_mono resolved_hacs
+  resolved_mono="$(git rev-parse "$mono_tag^{commit}" 2>/dev/null || true)"
+  resolved_hacs="$(git -C "$HACS_REPO" rev-parse "$hacs_tag^{commit}" 2>/dev/null || true)"
+  [[ "$resolved_mono" == "$mono" ]] \
+    || fail "monorepo tag $mono_tag no longer resolves to recorded commit $mono"
+  [[ "$resolved_hacs" == "$hacs" ]] \
+    || fail "HACS tag $hacs_tag no longer resolves to recorded commit $hacs"
 
   local snap_kodi snap_ams
   snap_kodi="$(git show "$mono:kodi/plugin.video.apollomedia/addon.xml" | python3 -c 'import sys,xml.etree.ElementTree as ET; print(ET.fromstring(sys.stdin.read()).attrib["version"])')"
-  snap_ams="$(git show "$mono:apollo_media_server/config.yaml" | awk -F'\"' '/^version:/ {print $2; exit}')"
-  [[ "$snap_kodi" == "$kodi" ]] || fail "manifest Kodi $kodi does not match snapshot $snap_kodi"
-  [[ "$snap_ams" == "$ams" ]] || fail "manifest AMS $ams does not match snapshot $snap_ams"
+  snap_ams="$(git show "$mono:apollo_media_server/config.yaml" | awk -F'"' '/^version:/ {print $2; exit}')"
 
-  # Restore the functional stack and the verifier/build contracts that must agree
-  # with the historical Kodi package. Keep scripts/apollo and release manifests current.
+  [[ "$snap_kodi" == "$kodi" ]] \
+    || fail "manifest Kodi $kodi does not match snapshot $snap_kodi"
+  [[ "$snap_ams" == "$ams" ]] \
+    || fail "manifest AMS $ams does not match snapshot $snap_ams"
+
+  # These are the source and validation contracts restored as one candidate.
+  # scripts/apollo and release manifests intentionally stay current.
   local paths=(
     apollo_media_server
     kodi/plugin.video.apollomedia
@@ -130,23 +171,36 @@ rollback_cmd(){
     scripts/verify-project.py
     verify-release.sh
   )
-  local existing=() p
-  for p in "${paths[@]}"; do
-    if git cat-file -e "$mono:$p" 2>/dev/null; then existing+=("$p"); fi
-  done
-  git restore --source="$mono" --staged --worktree -- "${existing[@]}"
-
-  # The dedicated HACS tree is restored independently, without committing/pushing.
-  git -C "$HACS_REPO" restore --source="$hacs" --staged --worktree -- dist/apollo-media-card.js
 
   echo
-  echo "PASS: rollback candidate prepared from $v"
+  if [[ "$dry_run" == "true" ]]; then
+    echo "DRY RUN: rollback candidate for $v"
+  else
+    echo "Preparing rollback candidate for $v"
+  fi
   echo "  Kodi source: $kodi"
   echo "  AMS source:  $ams"
   echo "  Monorepo:    $mono"
   echo "  HACS:        $hacs"
+
+  if [[ "$dry_run" == "true" ]]; then
+    echo
+    echo "Monorepo candidate diff:"
+    git --no-pager diff --name-status HEAD "$mono" -- "${paths[@]}" || true
+    echo "HACS candidate diff:"
+    git -C "$HACS_REPO" --no-pager diff --name-status HEAD "$hacs" -- dist/apollo-media-card.js || true
+    echo
+    echo "PASS: dry run completed; no working tree was modified."
+    return 0
+  fi
+
+  git restore --source="$mono" --staged --worktree -- "${paths[@]}"
+  git -C "$HACS_REPO" restore --source="$hacs" --staged --worktree -- dist/apollo-media-card.js
+
   echo
+  echo "PASS: rollback candidate prepared from $v"
   echo "Nothing was committed, pushed, tagged, or released."
+  echo
   echo "Monorepo changes:"
   git status --short
   echo "HACS changes:"
@@ -154,11 +208,32 @@ rollback_cmd(){
 }
 
 [[ $# -ge 1 ]] || { usage; exit 2; }
-cmd="$1"; shift
+cmd="$1"
+shift
+
 case "$cmd" in
-  show) [[ $# -eq 1 ]] || { usage; exit 2; }; show_cmd "$1" ;;
-  mark-stable) [[ $# -eq 1 ]] || { usage; exit 2; }; mark_stable_cmd "$1" ;;
-  rollback) [[ $# -eq 1 ]] || { usage; exit 2; }; rollback_cmd "$1" ;;
-  -h|--help|help) usage ;;
-  *) usage; exit 2 ;;
+  show)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    show_cmd "$1"
+    ;;
+  mark-stable)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    mark_stable_cmd "$1"
+    ;;
+  rollback)
+    dry_run=false
+    if [[ "${1:-}" == "--dry-run" ]]; then
+      dry_run=true
+      shift
+    fi
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    rollback_cmd "$1" "$dry_run"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
 esac
