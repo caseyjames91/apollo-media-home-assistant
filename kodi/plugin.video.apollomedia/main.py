@@ -156,20 +156,20 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             show_title=show_title,
         )
     )
+    remote_target = url(
+        "play_remote_command",
+        **_remote_params(
+            row,
+            media_type,
+            season=season,
+            episode=episode,
+            title=title,
+            show_title=show_title,
+        ),
+    )
     xbmcplugin.addDirectoryItem(
         HANDLE,
-        url(
-            "play_remote",
-            launch="1",
-            **_remote_params(
-                row,
-                media_type,
-                season=season,
-                episode=episode,
-                title=title,
-                show_title=show_title,
-            ),
-        ),
+        "RunPlugin(" + remote_target + ")",
         item,
         False,
     )
@@ -748,6 +748,38 @@ def _choose_stream_dialog():
             continue
 
 
+
+def play_remote_command(p):
+    try:
+        cached_only = str(p.get("cached_only") or "1") != "0"
+        streams = _stream_candidates(p, cached_only=cached_only)
+        if not streams and cached_only:
+            if xbmcgui.Dialog().yesno(
+                "Apollo Media",
+                "No cached streams were found.",
+                "Search uncached sources?",
+                nolabel="Cancel",
+                yeslabel="Search Uncached",
+            ):
+                retry = dict(p)
+                retry["cached_only"] = "0"
+                streams = _stream_candidates(retry, cached_only=False)
+                p = retry
+        if not streams:
+            notify("No compatible remote streams found", xbmcgui.NOTIFICATION_WARNING)
+            return
+        _save_source_session(streams, p)
+        if not source_session.current():
+            notify("All compatible streams are flagged", xbmcgui.NOTIFICATION_WARNING)
+            return
+        selected = source_session.load() or {}
+        index = int(selected.get("index") or 0)
+        xbmc.executebuiltin(
+            "PlayMedia(" + url("play_session_stream", index=index) + ")"
+        )
+    except Exception as exc:
+        notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
 def play_remote(p, choose=False):
     try:
         cached_only=str(p.get("cached_only") or "1") != "0"
@@ -788,19 +820,7 @@ def play_remote(p, choose=False):
 
         if not stream:
             notify("All compatible streams are flagged", xbmcgui.NOTIFICATION_WARNING)
-            if str(p.get("launch") or "") != "1":
-                xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
-            return
-
-        # Non-playable Apollo browse rows invoke play_remote as a command with
-        # launch=1. Preserve play_remote's existing resolver behavior for any
-        # direct Player.Open / external caller that does not carry launch=1.
-        if str(p.get("launch") or "") == "1":
-            selected = source_session.load() or {}
-            index = int(selected.get("index") or 0)
-            xbmc.executebuiltin(
-                "PlayMedia(" + url("play_session_stream", index=index) + ")"
-            )
+            xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             return
 
         _resolve_remote(stream, p)
@@ -1074,6 +1094,8 @@ def dispatch():
         go_to_season(p)
     elif action == "go_to_series":
         go_to_series(p)
+    elif action == "play_remote_command":
+        play_remote_command(p)
     elif action == "play_remote":
         play_remote(p,False)
     elif action == "play_remote_choose":
