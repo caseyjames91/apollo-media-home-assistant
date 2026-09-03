@@ -85,11 +85,13 @@ class MonitorPlayer(xbmc.Player):
         self.overview = ""
         self.poster_url = ""
         self.backdrop_url = ""
+        self.remote_playback = False
 
     def identify(self):
         try:
             tag = self.getVideoInfoTag()
             runtime = xbmcgui.Window(10000)
+            self.remote_playback = runtime.getProperty("ApolloPlaybackMode") == "remote"
             self.canonical_id = str(
                 runtime.getProperty("ApolloCanonicalId")
                 or tag.getUniqueID("apollo")
@@ -144,6 +146,9 @@ class MonitorPlayer(xbmc.Player):
     def emit(self):
         if not self.canonical_id:
             return
+        if self.remote_playback and source_session.attempt_state().get("state") != "confirmed":
+            xbmc.log("[ApolloProgress] suppressing provisional remote progress", xbmc.LOGINFO)
+            return
         position, duration = self.sample()
         if position < 10.0:
             return
@@ -183,7 +188,7 @@ class MonitorPlayer(xbmc.Player):
         if attempts.get("state")=="requested" and attempts.get("force_fail"):
             xbmc.log("[ApolloFallback] synthetic startup failure",xbmc.LOGINFO)
             self.stop(); _retry_failed_attempt("synthetic_test"); return
-        source_session.confirm_attempt()
+        source_session.start_attempt()
         self.identify()
         self.sample()
         if self.duration_is_implausible():
@@ -204,7 +209,7 @@ class MonitorPlayer(xbmc.Player):
             pass
 
     def onPlayBackError(self):
-        if source_session.attempt_state().get("state")=="requested":
+        if source_session.attempt_state().get("state") in ("requested", "started"):
             xbmc.log("[ApolloFallback] Kodi error before confirmation",xbmc.LOGWARNING)
             _retry_failed_attempt("kodi_playback_error")
 
@@ -232,7 +237,11 @@ class MonitorPlayer(xbmc.Player):
         self.clear()
 
     def onPlayBackEnded(self):
-        self.emit()
+        if self.remote_playback and source_session.attempt_state().get("state") in ("requested", "started"):
+            xbmc.log("[ApolloFallback] remote stream ended before confirmation", xbmc.LOGWARNING)
+            _retry_failed_attempt("ended_before_confirmation")
+        else:
+            self.emit()
         self._clear_playback_source()
         self.clear()
 
@@ -250,6 +259,13 @@ while not monitor.abortRequested():
         if deadline and time.time() >= deadline:
             xbmc.log("[ApolloFallback] startup confirmation timed out",xbmc.LOGWARNING)
             _retry_failed_attempt("startup_timeout")
+
+    if attempts.get("state")=="started" and player.canonical_id and player.isPlayingVideo():
+        try: started_at=float(attempts.get("started_at") or 0)
+        except Exception: started_at=0
+        if started_at and time.time() - started_at >= 3.0 and not player.duration_is_implausible():
+            source_session.confirm_attempt()
+            xbmc.log("[ApolloFallback] playback attempt confirmed after stable grace", xbmc.LOGINFO)
 
     if player.canonical_id and player.isPlayingVideo():
         player.sample()

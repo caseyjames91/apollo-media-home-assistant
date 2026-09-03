@@ -65,6 +65,8 @@ class ContinueWatchingItem(BaseModel):
     position_seconds: float
     duration_seconds: float
     progress_fraction: float
+    runtime: int | None = None
+    expected_duration_seconds: int | None = None
     available_locally: bool = False
     local_playback_path: str | None = None
     updated_at: datetime

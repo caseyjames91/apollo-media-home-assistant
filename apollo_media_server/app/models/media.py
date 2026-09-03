@@ -19,6 +19,7 @@ class Media(Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     series_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    runtime_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overview: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -25,6 +25,7 @@ _REQUIRED_SQLITE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("tvdb_id", "VARCHAR(32)"),
         ("series_title", "VARCHAR(500)"),
         ("year", "INTEGER"),
+        ("runtime_seconds", "INTEGER"),
         ("overview", "TEXT"),
         ("poster_url", "VARCHAR(1000)"),
         ("backdrop_url", "VARCHAR(1000)"),

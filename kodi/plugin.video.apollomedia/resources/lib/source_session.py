@@ -185,11 +185,23 @@ def begin_attempt(index=None, timeout=12.0, force_fail=False):
     return _write(data)
 
 
-def confirm_attempt():
+def start_attempt():
     data=load()
     if not data: return None
     attempts=dict(data.get("attempts") or {})
     if attempts.get("state")=="requested":
+        attempts["state"]="started"
+        attempts["started_at"]=time.time()
+        data["attempts"]=attempts
+        _write(data)
+    return data
+
+
+def confirm_attempt():
+    data=load()
+    if not data: return None
+    attempts=dict(data.get("attempts") or {})
+    if attempts.get("state") in ("requested", "started"):
         attempts["state"]="confirmed"; attempts["confirmed_at"]=time.time(); attempts["force_fail"]=False
         data["attempts"]=attempts; _write(data)
     return data

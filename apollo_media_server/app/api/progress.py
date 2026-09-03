@@ -66,6 +66,13 @@ def _upsert_one(db, payload, profile_id):
     position, duration = max(0,payload.position_seconds), max(0,payload.duration_seconds)
     if position < 10:
         return progress, media, False
+    expected_duration = max(0, int(media.runtime_seconds or 0))
+    if expected_duration > 0 and duration > 0:
+        ratio = duration / expected_duration
+        if ratio < 0.50 or ratio > 1.75:
+            # A provider error clip / wrong file must never redefine canonical
+            # duration or mark the title watched merely because Kodi reached EOF.
+            return progress, media, False
     if progress is None:
         progress = Progress(profile_id=profile_id, media_id=media.id); db.add(progress)
     elif incoming < _utc(progress.updated_at):
@@ -155,6 +162,8 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
             position_seconds=p.position_seconds,
             duration_seconds=duration,
             progress_fraction=fraction,
+            runtime=(int(m.runtime_seconds / 60) if m.runtime_seconds else None),
+            expected_duration_seconds=m.runtime_seconds,
             available_locally=bool(local),
             local_playback_path=None,
             updated_at=p.updated_at,

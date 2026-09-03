@@ -282,6 +282,7 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
             canonical.overview=episode_row["overview"] or canonical.overview
             canonical.poster_url=episode_row["poster_url"] or canonical.poster_url
             canonical.backdrop_url=episode_row["backdrop_url"] or canonical.backdrop_url
+        canonical.runtime_seconds = episode_runtime * 60 if episode_runtime > 0 else canonical.runtime_seconds
         episode_row["media_id"]=str(canonical.id)
         episodes.append(episode_row)
     if show.get("imdb_id"):
