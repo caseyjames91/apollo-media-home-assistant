@@ -1,6 +1,5 @@
 import sys
 import time
-from datetime import date, datetime
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
@@ -103,8 +102,6 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     item = xbmcgui.ListItem(label=display_label)
     item.setProperty("IsPlayable", "true")
     apply_common(item, row, title, imdb)
-    # Preserve Apollo's explicit presentation label after Kodi metadata.
-    item.setLabel(display_label)
 
     tag = item.getVideoInfoTag()
     if int(episode or 0) > 0:
@@ -112,14 +109,6 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
         tag.setEpisode(int(episode or 0))
         if show_title:
             tag.setTvShowTitle(str(show_title))
-        # Keep Apollo's episode presentation annotation visible in Estuary.
-        tag.setTitle(display_label)
-        air_date = str(row.get("air_date") or "").strip()
-        if air_date:
-            try:
-                tag.setFirstAired(air_date[:10])
-            except Exception as exc:
-                xbmc.log(f"[Apollo] first-aired metadata failed: {exc}", xbmc.LOGWARNING)
 
     # Always initialize Kodi state explicitly so a recycled/cached ListItem
     # cannot leak watched/resume metadata from another directory rendering.
@@ -232,9 +221,7 @@ def library_shows():
             if not imdb:
                 continue
             title = str(row.get("title") or "Unknown")
-            tmdb = str(row.get("tmdb_id") or "").strip()
-            target = url("discovery_show", tmdb=tmdb, imdb=imdb, title=title) if tmdb else url("show", imdb=imdb, title=title)
-            folder(title, target, row, imdb)
+            folder(title, url("show", imdb=imdb, title=title), row, imdb)
     except Exception as exc:
         notify(f"AMS show library failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("tvshows")
@@ -328,25 +315,21 @@ def _canonical_detail_target(row):
     )
 
 
-def discovery_list(mode, media_type, page=1):
-    page=max(1,int(page or 1))
+def discovery_list(mode, media_type):
     try:
-        rows=ams.discovery(ADDON,mode,media_type,page=page)
+        rows=ams.discovery(ADDON,mode,media_type)
         for row in rows:
             title=str(row.get("title") or "Unknown")
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
                 folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
-        if len(rows) >= 20:
-            folder("More Results",url("discovery",mode=mode,media_type=media_type,page=page+1))
     except Exception as exc:
         notify(f"AMS discovery failed: {exc}",xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type=="movie" else "tvshows")
 
-def search(media_type, query="", page=1):
-    page=max(1,int(page or 1))
-    query = str(query or "").strip() or xbmcgui.Dialog().input(
+def search(media_type):
+    query = xbmcgui.Dialog().input(
         "Search Movies" if media_type == "movie" else "Search Shows",
         type=xbmcgui.INPUT_ALPHANUM,
     ).strip()
@@ -354,76 +337,29 @@ def search(media_type, query="", page=1):
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
         return
     try:
-        rows = ams.discovery(ADDON, "search", media_type, query, page=page)
+        rows = ams.discovery(ADDON, "search", media_type, query)
         for row in rows:
             title = str(row.get("title") or "Unknown")
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
                 folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
-        if len(rows) >= 20:
-            folder("More Results",url("search",media_type=media_type,query=query,page=page+1))
     except Exception as exc:
         notify(f"AMS search failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type == "movie" else "tvshows")
 
 
 def discovery_show(p):
-    tmdb = str(p.get("tmdb") or "").strip()
-    if not tmdb:
-        notify("Show is missing its TMDB identity", xbmcgui.NOTIFICATION_ERROR)
-        end("seasons"); return
-    try:
-        details = ams.discovery_show(ADDON, tmdb)
-        title = str(details.get("title") or p.get("title") or "Show")
-        imdb = str(details.get("imdb_id") or p.get("imdb") or "")
-        for row in details.get("seasons") or []:
-            season_number = int(row.get("season") or 0)
-            label = str(row.get("title") or ("Specials" if season_number == 0 else f"Season {season_number}"))
-            season_row = {
-                "title": label,
-                "year": details.get("year"),
-                "poster_url": row.get("poster_url") or details.get("poster_url"),
-                "backdrop_url": details.get("backdrop_url"),
-                "overview": row.get("overview") or details.get("overview"),
-            }
-            folder(label, url("discovery_season", tmdb=tmdb, imdb=imdb,
-                              season=season_number, title=title), season_row, imdb)
-    except Exception as exc:
-        notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
-    end("seasons")
-
-def _episode_air_label(air_date):
-    value=str(air_date or "").strip()
-    if not value: return ""
-    try: target=date.fromisoformat(value[:10])
-    except Exception: return ""
-    today=date.today()
-    if target <= today: return ""
-    # Keep the episode title neutral and make the future-airing status
-    # visually distinct in Kodi's list row. Gold stays readable against
-    # both Estuary's normal dark list background and selected blue row.
-    return "[COLOR gold]Airing on " + target.strftime("%b %d").replace(" 0"," ") + "[/COLOR]"
-
-def discovery_season(p):
-    tmdb = str(p.get("tmdb") or "").strip()
-    season_number = int(p.get("season") or 0)
+    # Local discovery results enter the exact same show -> season -> episode
+    # route as Library. Remote-only show actions arrive with the provider stage.
+    if str(p.get("available_locally") or "") == "1" and p.get("imdb"):
+        show(p.get("imdb"), p.get("title") or "Show")
+        return
     title = str(p.get("title") or "Show")
-    try:
-        result = ams.discovery_season(ADDON, tmdb, season_number)
-        show_row = result.get("show") or {}
-        show_title = str(show_row.get("title") or title)
-        for row in result.get("episodes") or []:
-            episode = int(row.get("episode") or 0)
-            ep_title = str(row.get("title") or f"Episode {episode}")
-            air_label=_episode_air_label(row.get("air_date"))
-            label=f"{episode}. {ep_title}" + (f"  •  {air_label}" if air_label else "")
-            playable_media(row, "series", label=label,
-                           season=season_number, episode=episode,
-                           show_title=show_title)
-    except Exception as exc:
-        notify(f"AMS episodes failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
-    end("episodes")
+    item = xbmcgui.ListItem(label="Remote playback coming in provider stage")
+    item.setProperty("IsPlayable", "false")
+    xbmcplugin.addDirectoryItem(HANDLE, url("remote_pending", title=title), item, False)
+    end("files")
 
 
 def _bool_setting(name, default=True):
@@ -455,11 +391,6 @@ def _remote_params(row, media_type, season=0, episode=0, title="", show_title=""
         episode=int(episode or 0),
         title=str(title or row.get("title") or "Unknown"),
         show_title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
-        year=str(row.get("year") or ""),
-        overview=str(row.get("overview") or ""),
-        poster_url=str(row.get("poster_url") or ""),
-        backdrop_url=str(row.get("backdrop_url") or ""),
-        expected_duration=int(row.get("expected_duration_seconds") or (float(row.get("runtime") or 0)*60) or 0),
     )
 
 
@@ -476,26 +407,6 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})")
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
-    if int(episode or 0) > 0:
-        actions.append((
-            "Go to Season",
-            "Container.Update(" + url(
-                "go_to_season",
-                imdb=str(row.get("imdb_id") or ""),
-                series_tmdb=str(row.get("series_tmdb_id") or ""),
-                season=int(season or 0),
-                title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
-            ) + ")",
-        ))
-        actions.append((
-            "Go to Series",
-            "Container.Update(" + url(
-                "go_to_series",
-                imdb=str(row.get("imdb_id") or ""),
-                series_tmdb=str(row.get("series_tmdb_id") or ""),
-                title=str(show_title or row.get("series_title") or row.get("show_title") or ""),
-            ) + ")",
-        ))
     if row.get("available_locally") and media_id:
         actions.insert(
             0,
@@ -508,13 +419,12 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         actions.extend([
             ("Current Stream Info", f"RunPlugin({url('current_stream_info')})"),
             ("Try Next Stream", f"RunPlugin({url('try_next')})"),
-        ("TEST: Fail Current Stream Start", f"RunPlugin({url('test_fail_current_start')})"),
             ("Flag Current Stream", f"RunPlugin({url('flag_current')})"),
         ])
     return actions
 
 
-def _stream_candidates(p, cached_only=True):
+def _stream_candidates(p):
     imdb = str(p.get("imdb") or "").strip()
     if not imdb:
         media_id = str(p.get("media_id") or "").strip()
@@ -551,7 +461,6 @@ def _stream_candidates(p, cached_only=True):
         int(p.get("episode") or 0) if media_type == "series" else None,
         _remote_profile(),
         ADDON.getSettingString("debridio_url"),
-        cached_only=bool(cached_only),
     )
 
 
@@ -566,17 +475,10 @@ def _session_params(session):
         "canonical_id": str(session.get("canonical_id") or ""),
         "media_id": str(session.get("media_id") or ""),
         "show_title": str(session.get("show_title") or ""),
-        "tmdb": str(session.get("tmdb") or ""),
-        "year": str(session.get("year") or ""),
-        "overview": str(session.get("overview") or ""),
-        "poster_url": str(session.get("poster_url") or ""),
-        "backdrop_url": str(session.get("backdrop_url") or ""),
-        "expected_duration": int(session.get("expected_duration") or 0),
     }
 
 
 def _resolve_remote(stream, p):
-    source_session.begin_attempt()
     item = xbmcgui.ListItem(path=stream.url if hasattr(stream, "url") else str(stream.get("url") or ""))
     provider_raw = stream.provider if hasattr(stream, "provider") else stream.get("provider")
     title_raw = stream.title if hasattr(stream, "title") else stream.get("title")
@@ -597,22 +499,6 @@ def _resolve_remote(stream, p):
         runtime.setProperty("ApolloCanonicalId", canonical_id)
     if media_id:
         runtime.setProperty("ApolloMediaId", media_id)
-    expected_duration=int(float(p.get("expected_duration") or 0))
-    if expected_duration > 0:
-        runtime.setProperty("ApolloExpectedDuration",str(expected_duration))
-    else:
-        runtime.clearProperty("ApolloExpectedDuration")
-    for key,value in (
-        ("ApolloSeriesTitle",p.get("show_title")),
-        ("ApolloTmdbId",p.get("tmdb")),
-        ("ApolloYear",p.get("year")),
-        ("ApolloOverview",p.get("overview")),
-        ("ApolloPosterUrl",p.get("poster_url")),
-        ("ApolloBackdropUrl",p.get("backdrop_url")),
-    ):
-        value=str(value or "").strip()
-        if value: runtime.setProperty(key,value)
-        else: runtime.clearProperty(key)
 
     tag = item.getVideoInfoTag()
     tag.setTitle(str(p.get("title") or title_raw or "Remote"))
@@ -634,15 +520,7 @@ def _resolve_remote(stream, p):
         if show_title:
             tag.setTvShowTitle(show_title)
 
-    session = source_session.load() or {}
-    resume_mode = str(session.get("resume_mode") or "native")
-    if resume_mode == "beginning":
-        position, duration = 0.0, 0.0
-    elif resume_mode == "fixed":
-        position = max(0.0, float(session.get("resume_position") or 0))
-        duration = max(0.0, float(session.get("resume_duration") or 0))
-    else:
-        position, duration = ams.resume(ADDON, imdb, season, episode)
+    position, duration = ams.resume(ADDON, imdb, season, episode)
     if position > 0 and duration > 0:
         tag.setResumePoint(position, duration)
 
@@ -663,12 +541,6 @@ def _save_source_session(streams, p):
     session["canonical_id"] = str(p.get("canonical_id") or "")
     session["media_id"] = str(p.get("media_id") or "")
     session["show_title"] = str(p.get("show_title") or "")
-    session["tmdb"] = str(p.get("tmdb") or "")
-    session["year"] = str(p.get("year") or "")
-    session["overview"] = str(p.get("overview") or "")
-    session["poster_url"] = str(p.get("poster_url") or "")
-    session["backdrop_url"] = str(p.get("backdrop_url") or "")
-    session["expected_duration"] = int(float(p.get("expected_duration") or 0))
     try:
         import json, os, xbmcvfs
         directory = xbmcvfs.translatePath("special://profile/addon_data/plugin.video.apollomedia")
@@ -727,19 +599,7 @@ def _choose_stream_dialog():
 
 def play_remote(p, choose=False):
     try:
-        cached_only=str(p.get("cached_only") or "1") != "0"
-        streams=_stream_candidates(p,cached_only=cached_only)
-        if not streams and cached_only:
-            if xbmcgui.Dialog().yesno(
-                "Apollo Media",
-                "No cached streams were found.",
-                "Search uncached sources?",
-                nolabel="Cancel",
-                yeslabel="Search Uncached",
-            ):
-                retry=dict(p); retry["cached_only"]="0"
-                streams=_stream_candidates(retry,cached_only=False)
-                p=retry
+        streams = _stream_candidates(p)
         if not streams:
             notify("No compatible remote streams found", xbmcgui.NOTIFICATION_WARNING)
             xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
@@ -774,48 +634,6 @@ def play_remote(p, choose=False):
         xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
 
 
-def go_to_season(p):
-    imdb=str(p.get("imdb") or "").strip()
-    tmdb=str(p.get("series_tmdb") or "").strip()
-    title=str(p.get("title") or "Show")
-    season_number=int(p.get("season") or 0)
-    try:
-        if not tmdb and imdb:
-            identity=ams.series_identity(ADDON,imdb)
-            tmdb=str(identity.get("tmdb_id") or "").strip()
-            title=str(identity.get("title") or title)
-        if tmdb:
-            discovery_season({"tmdb":tmdb,"imdb":imdb,"season":season_number,"title":title})
-            return
-        if imdb:
-            season(imdb,season_number,title)
-            return
-        raise RuntimeError("Season identity is unavailable")
-    except Exception as exc:
-        notify(f"Unable to open season: {exc}",xbmcgui.NOTIFICATION_ERROR)
-        xbmcplugin.endOfDirectory(HANDLE,succeeded=False,cacheToDisc=False)
-
-def go_to_series(p):
-    imdb = str(p.get("imdb") or "").strip()
-    tmdb = str(p.get("series_tmdb") or "").strip()
-    title = str(p.get("title") or "Show")
-    try:
-        if not tmdb and imdb:
-            identity = ams.series_identity(ADDON, imdb)
-            tmdb = str(identity.get("tmdb_id") or "").strip()
-            title = str(identity.get("title") or title)
-        if tmdb:
-            discovery_show({"tmdb": tmdb, "imdb": imdb, "title": title})
-            return
-        if imdb:
-            show(imdb, title)
-            return
-        raise RuntimeError("Series identity is unavailable")
-    except Exception as exc:
-        notify(f"Unable to open series: {exc}", xbmcgui.NOTIFICATION_ERROR)
-        xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
-
-
 def current_stream_info():
     session = source_session.load() or {}
     stream = source_session.current()
@@ -834,17 +652,6 @@ def current_stream_info():
         f"Current Stream • {provider} • {index + 1}/{len(streams)}",
         f"Flagged: {flagged}\n\n{title}",
     )
-
-
-def test_fail_current_start():
-    session = source_session.load() or {}
-    if not source_session.current():
-        notify("No Apollo stream session is available", xbmcgui.NOTIFICATION_WARNING)
-        return
-    source_session.begin_attempt(int(session.get("index") or 0), timeout=12.0, force_fail=True)
-    notify("Test armed: current stream will fail before confirmation", xbmcgui.NOTIFICATION_INFO)
-    xbmc.Player().stop()
-    xbmc.executebuiltin("PlayMedia(" + url("play_session_stream", index=int(session.get("index") or 0)) + ")")
 
 
 def try_next():
@@ -1028,17 +835,11 @@ def dispatch():
     elif action == "continue":
         continue_watching()
     elif action == "discovery":
-        discovery_list(p.get("mode") or "popular",p.get("media_type") or "movie",int(p.get("page") or 1))
+        discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie")
     elif action == "search":
-        search(p.get("media_type") or "movie",p.get("query") or "",int(p.get("page") or 1))
+        search(p.get("media_type") or "movie")
     elif action == "discovery_show":
         discovery_show(p)
-    elif action == "discovery_season":
-        discovery_season(p)
-    elif action == "go_to_season":
-        go_to_season(p)
-    elif action == "go_to_series":
-        go_to_series(p)
     elif action == "play_remote":
         play_remote(p,False)
     elif action == "play_remote_choose":
@@ -1049,8 +850,6 @@ def dispatch():
         current_stream_info()
     elif action == "try_next":
         try_next()
-    elif action == "test_fail_current_start":
-        test_fail_current_start()
     elif action == "flag_current":
         flag_current()
     elif action == "detect_compatibility":
@@ -1059,6 +858,9 @@ def dispatch():
         link_torbox()
     elif action == "play_local":
         play_local(p)
+    elif action == "remote_pending":
+        notify("Remote/TorBox playback is intentionally not in the AMS-core test build")
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
     elif action == "settings":
         settings()
     else:
