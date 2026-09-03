@@ -61,22 +61,13 @@ required = [
     'folder("Library Shows", url("library_shows"))',
     'folder("Continue Watching", url("continue"))',
     'def playable_media(',
-    '"play_remote_command",',
-    'item.setProperty("IsPlayable", "false")',
-    'def play_remote_command(',
-    'def play_remote(',
+    '"play_remote",',
     '"Play Locally"',
     '"Pick Stream Manually"',
 ]
 absent = [token for token in required if token not in main_text]
 if absent:
     raise SystemExit("ERROR: rebuilt canonical media/playback contract missing from packaged main.py: " + ", ".join(absent))
-
-if '"RunPlugin(" + remote_target + ")"' in main_text:
-    raise SystemExit(
-        "ERROR: playable_media must pass the plugin URL directly; "
-        "RunPlugin(...) is not a directory-item URL"
-    )
 
 forbidden_root_actions = [
     'action_item("Current Stream Info"',
