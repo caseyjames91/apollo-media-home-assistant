@@ -635,23 +635,14 @@ def _resolve_remote(stream, p):
             tag.setTvShowTitle(show_title)
 
     session = source_session.load() or {}
-    resume_mode = str(session.get("resume_mode") or "native")
-    if resume_mode == "beginning":
-        position, duration = 0.0, 0.0
-    elif resume_mode == "fixed":
+    resume_mode = str(session.get("resume_mode") or "beginning")
+    if resume_mode == "fixed":
         position = max(0.0, float(session.get("resume_position") or 0))
-        duration = max(0.0, float(session.get("resume_duration") or 0))
-    else:
-        # The source session snapshots the native resume baseline before the
-        # first candidate opens. That gives onAVStarted enough context to
-        # distinguish "Resume" from "Play from beginning", and every fallback
-        # candidate can then inherit the user's single playback decision.
-        position = max(0.0, float(session.get("resume_position") or 0))
-        duration = max(0.0, float(session.get("resume_duration") or 0))
-        if position <= 0 or duration <= 0:
-            position, duration = ams.resume(ADDON, imdb, season, episode)
-    if position > 0 and duration > 0:
-        tag.setResumePoint(position, duration)
+        if position > 0:
+            # Apollo owns the one resume decision for the whole source session.
+            # StartOffset carries it to fallback URLs without another Kodi
+            # native resume prompt.
+            item.setProperty("StartOffset", str(position))
 
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
@@ -662,6 +653,20 @@ def _save_source_session(streams, p):
     season = int(p.get("season") or 0)
     episode = int(p.get("episode") or 0)
     resume_position, resume_duration = ams.resume(ADDON, imdb, season, episode)
+    resume_mode = "beginning"
+    if resume_position > 0 and resume_duration > 0:
+        total_seconds = max(0, int(resume_position))
+        resume_label = f"{total_seconds // 60}:{total_seconds % 60:02d}"
+        if xbmcgui.Dialog().yesno(
+            "Apollo Media",
+            f"Resume from {resume_label}?",
+            nolabel="Play from beginning",
+            yeslabel="Resume",
+        ):
+            resume_mode = "fixed"
+        else:
+            resume_position, resume_duration = 0.0, 0.0
+
     session = source_session.save(
         streams,
         imdb,
@@ -671,7 +676,7 @@ def _save_source_session(streams, p):
         str(p.get("title") or "Remote"),
         resume_position=resume_position,
         resume_duration=resume_duration,
-        resume_mode="native",
+        resume_mode=resume_mode,
     )
     # Preserve canonical Apollo identity alongside the proven session format.
     session["canonical_id"] = str(p.get("canonical_id") or "")

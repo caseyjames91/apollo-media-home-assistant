@@ -8,5 +8,5 @@ class Canonical033(unittest.TestCase):
  def test_episode_navigation(self):
   self.assertIn('"Go to Season"',M); self.assertIn("def go_to_season(p):",M); self.assertIn('"go_to_series"',M)
  def test_resume_intent_survives_fallback(self):
-  self.assertIn('resume_mode == "beginning"',M); self.assertIn('resume_mode == "fixed"',M); self.assertIn("def _capture_resume_intent(self):",S)
+  self.assertIn('resume_mode = "beginning"',M); self.assertIn('resume_mode = "fixed"',M); self.assertIn('item.setProperty("StartOffset", str(position))',M); self.assertIn("def _capture_resume_intent(self):",S)
  def test_parse(self): ast.parse(M); ast.parse(S)
