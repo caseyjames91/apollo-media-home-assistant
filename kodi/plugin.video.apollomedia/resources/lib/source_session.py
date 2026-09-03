@@ -231,56 +231,6 @@ def attempt_state():
     return dict((load() or {}).get("attempts") or {})
 
 
-def claim_pending_retry(settle_seconds=0.75, now=None):
-    """Promote a settled retry_pending attempt to requested.
-
-    fail_attempt() selects the replacement candidate, but automatic playback
-    is deliberately launched later by the long-lived Kodi service after the
-    failed player transaction has finished tearing down.
-    """
-    data = load()
-    if not data:
-        return None
-
-    attempts = dict(data.get("attempts") or {})
-    if attempts.get("state") != "retry_pending":
-        return None
-
-    try:
-        failed_at = float(attempts.get("failed_at") or 0)
-    except Exception:
-        failed_at = 0.0
-
-    current_time = time.time() if now is None else float(now)
-    settle_seconds = max(0.0, float(settle_seconds or 0))
-
-    if failed_at > 0 and current_time - failed_at < settle_seconds:
-        return None
-
-    try:
-        index = int(attempts.get("index"))
-    except Exception:
-        return None
-
-    streams = data.get("streams") or []
-    if not (0 <= index < len(streams)):
-        return None
-
-    attempts.update({
-        "state": "requested",
-        "index": index,
-        "stream_key": _stream_key(streams[index]),
-        "requested_at": current_time,
-        "deadline": current_time + 12.0,
-        "confirmed_at": 0.0,
-        "force_fail": False,
-        "failed_keys": list(attempts.get("failed_keys") or []),
-    })
-    data["attempts"] = attempts
-    _write(data)
-    return index
-
-
 def select(index):
     data = load()
     if not data:

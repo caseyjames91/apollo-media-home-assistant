@@ -50,28 +50,18 @@ def _plugin_url(action, **values):
 def _retry_failed_attempt(reason):
     global _retry_in_flight
     with _retry_lock:
-        if _retry_in_flight:
-            return
-        _retry_in_flight = True
+        if _retry_in_flight: return
+        _retry_in_flight=True
     try:
-        session, stream = source_session.fail_attempt(reason)
+        session,stream=source_session.fail_attempt(reason)
         if not stream:
-            xbmcgui.Dialog().notification(
-                "Apollo Media",
-                "No more compatible streams are available",
-                xbmcgui.NOTIFICATION_WARNING,
-                5000,
-            )
+            xbmcgui.Dialog().notification("Apollo Media","No more compatible streams are available",xbmcgui.NOTIFICATION_WARNING,5000)
             return
-
-        index = int((session or {}).get("index") or 0)
-        xbmc.log(
-            f"[ApolloFallback] retry pending index={index} reason={reason}",
-            xbmc.LOGINFO,
-        )
+        index=int((session or {}).get("index") or 0)
+        xbmc.log(f"[ApolloFallback] retry index={index} reason={reason}",xbmc.LOGINFO)
+        xbmc.executebuiltin("PlayMedia("+_plugin_url("play_session_stream",index=index)+")")
     finally:
-        with _retry_lock:
-            _retry_in_flight = False
+        with _retry_lock: _retry_in_flight=False
 
 
 class MonitorPlayer(xbmc.Player):
@@ -263,24 +253,6 @@ while not monitor.abortRequested():
     if monitor.waitForAbort(1):
         break
     attempts=source_session.attempt_state()
-
-    # A failed candidate is advanced immediately in source-session state, but
-    # its replacement must not be launched from inside the Player callback
-    # that is still tearing the old playback transaction down.
-    if attempts.get("state") == "retry_pending" and not player.isPlayingVideo():
-        retry_index = source_session.claim_pending_retry()
-        if retry_index is not None:
-            xbmc.log(
-                f"[ApolloFallback] launching deferred retry index={retry_index}",
-                xbmc.LOGINFO,
-            )
-            xbmc.executebuiltin(
-                "PlayMedia("
-                + _plugin_url("play_session_stream", index=retry_index)
-                + ")"
-            )
-            attempts = source_session.attempt_state()
-
     if attempts.get("state")=="requested":
         try: deadline=float(attempts.get("deadline") or 0)
         except Exception: deadline=0

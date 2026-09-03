@@ -101,10 +101,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     imdb = str(row.get("imdb_id") or "").strip()
 
     item = xbmcgui.ListItem(label=display_label)
-    # This row is a command entry, not a Kodi-native playback resolver.
-    # Keep the VideoInfoTag resume point below so skins can render progress,
-    # but route activation through Apollo so Kodi cannot own the resume choice.
-    item.setProperty("IsPlayable", "false")
+    item.setProperty("IsPlayable", "true")
     apply_common(item, row, title, imdb)
     # Preserve Apollo's explicit presentation label after Kodi metadata.
     item.setLabel(display_label)
@@ -156,20 +153,19 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             show_title=show_title,
         )
     )
-    remote_target = url(
-        "play_remote_command",
-        **_remote_params(
-            row,
-            media_type,
-            season=season,
-            episode=episode,
-            title=title,
-            show_title=show_title,
-        ),
-    )
     xbmcplugin.addDirectoryItem(
         HANDLE,
-        remote_target,
+        url(
+            "play_remote",
+            **_remote_params(
+                row,
+                media_type,
+                season=season,
+                episode=episode,
+                title=title,
+                show_title=show_title,
+            ),
+        ),
         item,
         False,
     )
@@ -639,48 +635,29 @@ def _resolve_remote(stream, p):
             tag.setTvShowTitle(show_title)
 
     session = source_session.load() or {}
-    resume_mode = str(session.get("resume_mode") or "beginning")
-    if resume_mode == "fixed":
+    resume_mode = str(session.get("resume_mode") or "native")
+    if resume_mode == "beginning":
+        position, duration = 0.0, 0.0
+    elif resume_mode == "fixed":
         position = max(0.0, float(session.get("resume_position") or 0))
-        if position > 0:
-            # Apollo owns the one resume decision for the whole source session.
-            # StartOffset carries it to fallback URLs without another Kodi
-            # native resume prompt.
-            item.setProperty("StartOffset", str(position))
+        duration = max(0.0, float(session.get("resume_duration") or 0))
+    else:
+        position, duration = ams.resume(ADDON, imdb, season, episode)
+    if position > 0 and duration > 0:
+        tag.setResumePoint(position, duration)
 
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
 
 
 def _save_source_session(streams, p):
-    imdb = str(p.get("imdb") or "")
-    season = int(p.get("season") or 0)
-    episode = int(p.get("episode") or 0)
-    resume_position, resume_duration = ams.resume(ADDON, imdb, season, episode)
-    resume_mode = "beginning"
-    if resume_position > 0 and resume_duration > 0:
-        total_seconds = max(0, int(resume_position))
-        resume_label = f"{total_seconds // 60}:{total_seconds % 60:02d}"
-        if xbmcgui.Dialog().yesno(
-            "Apollo Media",
-            f"Resume from {resume_label}?",
-            nolabel="Play from beginning",
-            yeslabel="Resume",
-        ):
-            resume_mode = "fixed"
-        else:
-            resume_position, resume_duration = 0.0, 0.0
-
     session = source_session.save(
         streams,
-        imdb,
-        "series" if episode > 0 or str(p.get("media_type") or "") in ("series", "episode", "show") else "movie",
-        season,
-        episode,
+        str(p.get("imdb") or ""),
+        "series" if int(p.get("episode") or 0) > 0 or str(p.get("media_type") or "") in ("series", "episode", "show") else "movie",
+        int(p.get("season") or 0),
+        int(p.get("episode") or 0),
         str(p.get("title") or "Remote"),
-        resume_position=resume_position,
-        resume_duration=resume_duration,
-        resume_mode=resume_mode,
     )
     # Preserve canonical Apollo identity alongside the proven session format.
     session["canonical_id"] = str(p.get("canonical_id") or "")
@@ -747,38 +724,6 @@ def _choose_stream_dialog():
             manual_unflag_stream(original_index)
             continue
 
-
-
-def play_remote_command(p):
-    try:
-        cached_only = str(p.get("cached_only") or "1") != "0"
-        streams = _stream_candidates(p, cached_only=cached_only)
-        if not streams and cached_only:
-            if xbmcgui.Dialog().yesno(
-                "Apollo Media",
-                "No cached streams were found.",
-                "Search uncached sources?",
-                nolabel="Cancel",
-                yeslabel="Search Uncached",
-            ):
-                retry = dict(p)
-                retry["cached_only"] = "0"
-                streams = _stream_candidates(retry, cached_only=False)
-                p = retry
-        if not streams:
-            notify("No compatible remote streams found", xbmcgui.NOTIFICATION_WARNING)
-            return
-        _save_source_session(streams, p)
-        if not source_session.current():
-            notify("All compatible streams are flagged", xbmcgui.NOTIFICATION_WARNING)
-            return
-        selected = source_session.load() or {}
-        index = int(selected.get("index") or 0)
-        xbmc.executebuiltin(
-            "PlayMedia(" + url("play_session_stream", index=index) + ")"
-        )
-    except Exception as exc:
-        notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
 
 def play_remote(p, choose=False):
     try:
@@ -1094,8 +1039,6 @@ def dispatch():
         go_to_season(p)
     elif action == "go_to_series":
         go_to_series(p)
-    elif action == "play_remote_command":
-        play_remote_command(p)
     elif action == "play_remote":
         play_remote(p,False)
     elif action == "play_remote_choose":
