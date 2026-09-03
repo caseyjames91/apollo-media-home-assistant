@@ -66,7 +66,11 @@ def _upsert_one(db, payload, profile_id):
     position, duration = max(0,payload.position_seconds), max(0,payload.duration_seconds)
     if position < 10:
         return progress, media, False
-    expected_duration = max(0, int(media.runtime_seconds or 0))
+    # Canonical runtime is preferred. For older canonical media rows that
+    # predate runtime persistence, an existing accepted profile duration is the
+    # best known playback contract for this exact media identity.
+    prior_duration = max(0, int(progress.duration_seconds or 0)) if progress is not None else 0
+    expected_duration = max(0, int(media.runtime_seconds or 0)) or prior_duration
     if expected_duration > 0 and duration > 0:
         ratio = duration / expected_duration
         if ratio < 0.50 or ratio > 1.75:
@@ -143,6 +147,10 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
         remaining=max(0.0,duration-p.position_seconds) if duration else None
         if p.position_seconds < 10 or p.watched or (remaining is not None and remaining <= 20): continue
         fraction=p.position_seconds/duration if duration else 0
+        # Continue Watching is canonical media plus profile viewing state.
+        # Old canonical rows may not yet have runtime_seconds populated, but an
+        # accepted CW progress row already carries the known full duration.
+        expected_duration = max(0, int(m.runtime_seconds or 0)) or max(0, int(duration or 0))
         local=db.scalar(select(LocalAvailability).where(LocalAvailability.media_id==m.id,LocalAvailability.available.is_(True)))
         out.append(ContinueWatchingItem(
             media_id=m.id,
@@ -162,8 +170,8 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
             position_seconds=p.position_seconds,
             duration_seconds=duration,
             progress_fraction=fraction,
-            runtime=(int(m.runtime_seconds / 60) if m.runtime_seconds else None),
-            expected_duration_seconds=m.runtime_seconds,
+            runtime=(int(expected_duration / 60) if expected_duration else None),
+            expected_duration_seconds=expected_duration or None,
             available_locally=bool(local),
             local_playback_path=None,
             updated_at=p.updated_at,
