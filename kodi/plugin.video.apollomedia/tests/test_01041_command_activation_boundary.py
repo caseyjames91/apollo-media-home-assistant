@@ -5,10 +5,12 @@ class CommandActivation041(unittest.TestCase):
  def playable(self): return M[M.index("def playable_media("):M.index("\ndef home():")]
  def command(self): return M[M.index("def play_remote_command("):M.index("\ndef play_remote(")]
  def resolver(self): return M[M.index("def play_remote("):M.index("\ndef go_to_season(")]
- def test_row_is_builtin_command_not_plugin_media_path(self):
+ def test_row_is_nonplayable_plugin_command_path(self):
   b=self.playable()
-  self.assertIn('"RunPlugin(" + remote_target + ")"',b)
+  self.assertIn('item.setProperty("IsPlayable", "false")',b)
   self.assertIn('"play_remote_command"',b)
+  self.assertIn('HANDLE,\n        remote_target,\n        item,',b)
+  self.assertNotIn('"RunPlugin(" + remote_target + ")"',b)
   self.assertNotIn('launch="1"',b)
  def test_command_owns_resume_session_then_launches_resolver(self):
   b=self.command()

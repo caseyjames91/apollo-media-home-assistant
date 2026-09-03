@@ -169,7 +169,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     )
     xbmcplugin.addDirectoryItem(
         HANDLE,
-        "RunPlugin(" + remote_target + ")",
+        remote_target,
         item,
         False,
     )
