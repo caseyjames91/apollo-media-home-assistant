@@ -62,7 +62,7 @@ required = [
     'folder("Continue Watching", url("continue"))',
     'def playable_media(',
     '"play_remote_command",',
-    '"RunPlugin(" + remote_target + "\)"',
+    '"RunPlugin(" + remote_target + ")"',
     'def play_remote_command(',
     'def play_remote(',
     '"Play Locally"',
