@@ -101,7 +101,10 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     imdb = str(row.get("imdb_id") or "").strip()
 
     item = xbmcgui.ListItem(label=display_label)
-    item.setProperty("IsPlayable", "true")
+    # This row is a command entry, not a Kodi-native playback resolver.
+    # Keep the VideoInfoTag resume point below so skins can render progress,
+    # but route activation through Apollo so Kodi cannot own the resume choice.
+    item.setProperty("IsPlayable", "false")
     apply_common(item, row, title, imdb)
     # Preserve Apollo's explicit presentation label after Kodi metadata.
     item.setLabel(display_label)
@@ -157,6 +160,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
         HANDLE,
         url(
             "play_remote",
+            launch="1",
             **_remote_params(
                 row,
                 media_type,
@@ -784,7 +788,19 @@ def play_remote(p, choose=False):
 
         if not stream:
             notify("All compatible streams are flagged", xbmcgui.NOTIFICATION_WARNING)
-            xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+            if str(p.get("launch") or "") != "1":
+                xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+            return
+
+        # Non-playable Apollo browse rows invoke play_remote as a command with
+        # launch=1. Preserve play_remote's existing resolver behavior for any
+        # direct Player.Open / external caller that does not carry launch=1.
+        if str(p.get("launch") or "") == "1":
+            selected = source_session.load() or {}
+            index = int(selected.get("index") or 0)
+            xbmc.executebuiltin(
+                "PlayMedia(" + url("play_session_stream", index=index) + ")"
+            )
             return
 
         _resolve_remote(stream, p)
