@@ -396,7 +396,7 @@ def discovery_show(p):
 def _episode_air_label(air_date):
     value=str(air_date or "").strip()
     if not value: return ""
-    try: target=datetime.strptime(value[:10],"%Y-%m-%d").date()
+    try: target=date.fromisoformat(value[:10])
     except Exception: return ""
     today=date.today()
     if target <= today: return ""

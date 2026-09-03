@@ -18,6 +18,11 @@ class FutureAiringLabelContract(unittest.TestCase):
         self.assertIn('air_label=_episode_air_label(row.get("air_date"))', source)
         self.assertIn('label=f"{episode}. {ep_title}" + (f"  •  {air_label}" if air_label else "")', source)
 
+    def test_airing_parser_uses_kodi_safe_iso_date_path(self):
+        source = MAIN.read_text()
+        self.assertIn('date.fromisoformat(value[:10])', source)
+        self.assertNotIn('datetime.strptime(value[:10]', source)
+
     def test_main_still_parses(self):
         ast.parse(MAIN.read_text())
 
