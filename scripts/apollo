@@ -13,12 +13,12 @@ usage(){
   cat <<'USAGE'
 Usage:
   ./scripts/apollo show <version>
-  ./scripts/apollo mark-stable <version>
+  ./scripts/apollo mark-stable [--dry-run] <version>
   ./scripts/apollo rollback [--dry-run] <version>
 
 Commands:
   show         Display the recorded baseline/stable snapshot.
-  mark-stable  Record an already-released, runtime-approved version as stable.
+  mark-stable  Promote an already-released, runtime-approved version to stable.
   rollback     Restore the recorded Kodi + AMS + card + release-contract source
                into the working tree as a forward-release candidate. It does not
                publish, push, tag, or rewrite Git history.
@@ -65,58 +65,56 @@ show_cmd(){
 }
 
 mark_stable_cmd(){
-  local v="$1"
+  local v="$1" dry_run="${2:-false}"
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must look like X.Y.Z"
   require_clean
-
   git fetch origin --tags >/dev/null
   git -C "$HACS_REPO" fetch origin --tags >/dev/null
-
-  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] \
-    || fail "monorepo is not synchronized with origin/main"
-  [[ "$(git -C "$HACS_REPO" rev-parse HEAD)" == "$(git -C "$HACS_REPO" rev-parse origin/main)" ]] \
-    || fail "HACS repo is not synchronized with origin/main"
-
+  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "monorepo is not synchronized with origin/main"
+  [[ "$(git -C "$HACS_REPO" rev-parse HEAD)" == "$(git -C "$HACS_REPO" rev-parse origin/main)" ]] || fail "HACS repo is not synchronized with origin/main"
   git rev-parse "$v^{commit}" >/dev/null 2>&1 || fail "monorepo tag $v not found"
   git -C "$HACS_REPO" rev-parse "$v^{commit}" >/dev/null 2>&1 || fail "HACS tag $v not found"
+  local stable_tag="stable/$v"
   [[ ! -e "releases/stable/$v.json" ]] || fail "stable manifest already exists for $v"
-
+  if git show-ref --verify --quiet "refs/tags/$stable_tag"; then fail "stable tag $stable_tag already exists locally"; fi
+  if git ls-remote --exit-code --tags origin "refs/tags/$stable_tag" >/dev/null 2>&1; then fail "stable tag $stable_tag already exists on origin"; fi
   local mono hacs kodi ams ams_component
   mono="$(git rev-parse "$v^{commit}")"
   hacs="$(git -C "$HACS_REPO" rev-parse "$v^{commit}")"
-  kodi="$(git show "$v:kodi/plugin.video.apollomedia/addon.xml" | python3 -c 'import sys,xml.etree.ElementTree as ET; print(ET.fromstring(sys.stdin.read()).attrib["version"])')"
-  ams="$(git show "$v:apollo_media_server/config.yaml" | awk -F'"' '/^version:/ {print $2; exit}')"
-  ams_component="$(git log -1 --format=%H "$v" -- apollo_media_server)"
-
-  [[ "$kodi" == "$v" ]] || fail "Kodi version at tag $v is $kodi"
-  [[ -n "$ams" ]] || fail "could not determine AMS version at tag $v"
-
+  kodi="$(git show "$mono:kodi/plugin.video.apollomedia/addon.xml" | python3 -c 'import sys,xml.etree.ElementTree as ET; print(ET.fromstring(sys.stdin.read()).attrib["version"])')"
+  ams="$(git show "$mono:apollo_media_server/config.yaml" | awk -F'"' '/^version:/ {print $2; exit}')"
+  ams_component="$(git log -1 --format=%H "$mono" -- apollo_media_server)"
+  [[ "$kodi" == "$v" ]] || fail "Kodi version at release $v is $kodi"
+  [[ -n "$ams" ]] || fail "could not determine AMS version"
+  echo
+  if [[ "$dry_run" == "true" ]]; then echo "DRY RUN: stable promotion for $v"; else echo "Promoting $v to stable"; fi
+  echo "  Release commit: $mono"
+  echo "  Stable tag:     $stable_tag -> $mono"
+  echo "  Kodi version:   $kodi"
+  echo "  AMS version:    $ams"
+  echo "  AMS component:  $ams_component"
+  echo "  HACS release:   $v -> $hacs"
+  echo "  Manifest:       releases/stable/$v.json"
+  if [[ "$dry_run" == "true" ]]; then
+    echo "PASS: dry run completed; nothing was modified."
+    return 0
+  fi
   mkdir -p releases/stable
-  python3 - "$v" "$mono" "$kodi" "$ams" "$ams_component" "$hacs" > "releases/stable/$v.json" <<'PY'
+  python3 - "$v" "$mono" "$kodi" "$ams" "$ams_component" "$hacs" > "releases/stable/$v.json" <<'JSONPY'
 import json,sys
 v,mono,kodi,ams,ams_component,hacs=sys.argv[1:]
-obj={
-    "schema":1,
-    "kind":"stable",
-    "name":v,
-    "notes":"Runtime-approved stable Apollo stack.",
-    "monorepo":{"tag":v,"commit":mono},
-    "kodi":{"version":kodi},
-    "ams":{"version":ams,"last_component_commit":ams_component},
-    "hacs":{"tag":v,"commit":hacs},
-}
-json.dump(obj,sys.stdout,indent=2)
-print()
-PY
-
+json.dump({"schema":1,"kind":"stable","name":v,"notes":"Runtime-approved stable Apollo stack.","monorepo":{"tag":v,"commit":mono},"kodi":{"version":kodi},"ams":{"version":ams,"last_component_commit":ams_component},"hacs":{"tag":v,"commit":hacs}},sys.stdout,indent=2); print()
+JSONPY
   python3 -m json.tool "releases/stable/$v.json" >/dev/null
   git add "releases/stable/$v.json"
   git diff --cached --check
-
-  echo "PASS: stable manifest prepared: releases/stable/$v.json"
-  echo "Review it, then commit/push it. No tag or release was changed."
+  [[ "$(git diff --cached --name-only)" == "releases/stable/$v.json" ]] || fail "unexpected staged files"
+  git commit -m "Mark Apollo Media $v stable"
+  git tag -a "$stable_tag" "$mono" -m "Apollo Media $v runtime-approved stable"
+  git push --atomic origin main "refs/tags/$stable_tag"
+  [[ "$(git rev-parse "$stable_tag^{commit}")" == "$mono" ]] || fail "stable tag target mismatch"
+  echo "PASS: Apollo Media $v marked stable."
 }
-
 rollback_cmd(){
   local v="$1"
   local dry_run="${2:-false}"
@@ -217,8 +215,10 @@ case "$cmd" in
     show_cmd "$1"
     ;;
   mark-stable)
+    dry_run=false
+    if [[ "${1:-}" == "--dry-run" ]]; then dry_run=true; shift; fi
     [[ $# -eq 1 ]] || { usage; exit 2; }
-    mark_stable_cmd "$1"
+    mark_stable_cmd "$1" "$dry_run"
     ;;
   rollback)
     dry_run=false
