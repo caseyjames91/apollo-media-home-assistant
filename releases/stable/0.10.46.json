@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "stable",
+  "name": "0.10.46",
+  "notes": "Runtime-approved stable Apollo stack.",
+  "monorepo": {
+    "tag": "0.10.46",
+    "commit": "52f4a74f5b17e43cb780f87d2dd82e1496574263"
+  },
+  "kodi": {
+    "version": "0.10.46"
+  },
+  "ams": {
+    "version": "0.2.22",
+    "last_component_commit": "cacfcf9562b685ceb6788eaf7816beb35134a675"
+  },
+  "hacs": {
+    "tag": "0.10.46",
+    "commit": "7bfd20b31924022f9f282cb2747024b8ff83464c"
+  }
+}
