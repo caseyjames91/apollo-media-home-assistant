@@ -312,3 +312,49 @@ Latest release commit:
 Latest stable-promotion commit:
 
 `adb4f49 — Mark Apollo Media 0.10.46 stable`
+
+## Checkpoint — 0.10.47 watched-state fix
+
+### Stable/runtime state
+
+- Stable Kodi release: **0.10.47**
+- Runtime-tested Kodi version: **0.10.47**
+- Kodi release commit: `4bfb85f64c21b50368c765b745051632d41ea4eb`
+- Stable promotion commit: `b7d7fc5`
+- AMS runtime version: **0.2.23**
+- AMS release commit: `8bd73320c8f6c4d88e1f9ab4a4686d7fa5129397`
+- Functional watched-state commit: `fc7aa6e` — `Make AMS authoritative for watched state`
+- Stable manifest: `releases/stable/0.10.47.json`
+
+### Watched-state architecture and runtime validation
+
+AMS is the authoritative owner of profile viewing state. Kodi is a client that reads and mutates that state; the HA card and future Apollo TV clients follow the same ownership model.
+
+AMS 0.2.23 added an explicit profile/media watched-state mutation API:
+
+`PUT /profiles/{profile_id}/media/{media_id}/watched`
+
+Kodi Apollo now exposes `Apollo: Mark watched` and `Apollo: Mark unwatched`, writes the change to AMS, refreshes the container, and renders watched state from AMS.
+
+Runtime validation on 0.10.47 confirmed:
+
+1. `Apollo: Mark watched` successfully marked a Continue Watching item watched.
+2. The item immediately disappeared from Continue Watching after refresh.
+3. Browsing to the title elsewhere in Apollo rendered it as watched.
+4. Therefore the Kodi → AMS mutation and AMS → Kodi rendering round trip is working.
+
+Kodi Omega still exposes its native `Mark as watched` context action in addition to Apollo's actions. That native action is not the authoritative Apollo mutation path. This is a separate integration/UX issue and did not block 0.10.47 stable promotion.
+
+### Next task
+
+Return to the deferred bad RAR/error-clip playback problem.
+
+Observed failure: a short error/RAR clip can technically play to completion, causing normal progress reporting to treat the real episode/movie as completed and mark it watched.
+
+Required final behavior:
+
+- Detect invalid/error playback rather than treating it as legitimate media.
+- Skip/advance to another candidate when possible.
+- Persistently flag/quarantine the bad candidate so it is not selected again.
+- Failed playback must not alter profile progress, resume position, or watched state.
+- Do not use a generic short-duration rule that would incorrectly reject legitimate short-form media.
