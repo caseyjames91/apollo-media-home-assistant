@@ -48,7 +48,7 @@ class FakeListItem:
     def getVideoInfoTag(self):
         return self.tag
 
-    def addContextMenuItems(self, items):
+    def addContextMenuItems(self, items, replaceItems=False):
         self.context.extend(items)
 
 
