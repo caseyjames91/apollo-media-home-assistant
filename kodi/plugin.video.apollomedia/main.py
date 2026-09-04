@@ -520,9 +520,6 @@ def _resolve_remote(stream, p):
         if show_title:
             tag.setTvShowTitle(show_title)
 
-    position, duration = ams.resume(ADDON, imdb, season, episode)
-    if position > 0 and duration > 0:
-        tag.setResumePoint(position, duration)
 
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
