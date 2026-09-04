@@ -185,6 +185,13 @@ def progress_for(addon, row, season=0, episode=0):
     return 0.0, 0.0, False
 
 
+def media_item(addon, media_id):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        return {}
+    result = request(addon, f"media/{media_id}", timeout=5) or {}
+    return result if isinstance(result, dict) else {}
+
 def resolve_playback_identity(addon, media_id):
     media_id = str(media_id or "").strip()
     if not media_id:

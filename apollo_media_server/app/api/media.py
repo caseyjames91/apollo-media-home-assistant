@@ -67,6 +67,7 @@ def _dto(db, row):
             else None
         ),
         "local_sources": [_local_source_dto(source) for source in local_sources],
+        "runtime_seconds": max(0, int(row.runtime_seconds or 0)),
     }
 
 
