@@ -256,3 +256,25 @@ def discovery(addon, mode, media_type, query=""):
         path += "?" + urlencode({"q": str(query or "").strip()})
     rows = request(addon, path, timeout=20) or []
     return rows if isinstance(rows, list) else []
+
+
+def set_watched(addon, media_id, watched):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        raise RuntimeError("Media ID is required to change watched state")
+
+    pid = profile_id(addon)
+    result = request(
+        addon,
+        f"profiles/{pid}/media/{media_id}/watched",
+        method="PUT",
+        payload={"watched": bool(watched)},
+        timeout=5,
+    )
+
+    # Watched state changed, so cached profile progress must not survive
+    # into any later rendering in the same plugin process.
+    _progress_cache.pop(pid, None)
+    _progress_index_cache.pop(pid, None)
+
+    return result or {}

@@ -70,3 +70,7 @@ class ContinueWatchingItem(BaseModel):
     available_locally: bool = False
     local_playback_path: str | None = None
     updated_at: datetime
+
+
+class WatchedUpdate(BaseModel):
+    watched: bool

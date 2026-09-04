@@ -8,7 +8,7 @@ from app.models.local_availability import LocalAvailability
 from app.models.media import Media
 from app.models.profile import Profile
 from app.models.progress import Progress
-from app.schemas.progress import ContinueWatchingItem, ProgressImport, ProgressUpsert
+from app.schemas.progress import ContinueWatchingItem, ProgressImport, ProgressUpsert, WatchedUpdate
 
 router = APIRouter(tags=["progress"])
 
@@ -177,3 +177,47 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
             updated_at=p.updated_at,
         ))
     return out
+
+
+@router.put("/profiles/{profile_id}/media/{media_id}/watched")
+def set_watched(
+    profile_id: uuid.UUID,
+    media_id: uuid.UUID,
+    payload: WatchedUpdate,
+    db: Session = Depends(get_db),
+):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    media = db.get(Media, media_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    progress = db.scalar(
+        select(Progress).where(
+            Progress.profile_id == profile_id,
+            Progress.media_id == media_id,
+        )
+    )
+    if progress is None:
+        progress = Progress(
+            profile_id=profile_id,
+            media_id=media_id,
+            position_seconds=0,
+            duration_seconds=0,
+        )
+        db.add(progress)
+
+    now = datetime.now(timezone.utc)
+    progress.watched = bool(payload.watched)
+    progress.watched_at = now if payload.watched else None
+    progress.updated_at = now
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "profile_id": str(profile_id),
+        "media_id": str(media_id),
+        "watched": progress.watched,
+    }

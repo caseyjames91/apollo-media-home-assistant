@@ -140,7 +140,8 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             episode=episode,
             title=title,
             show_title=show_title,
-        )
+        ),
+        replaceItems=True,
     )
     xbmcplugin.addDirectoryItem(
         HANDLE,
@@ -407,6 +408,17 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})")
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
+    if media_id:
+        actions.extend([
+            (
+                "Apollo: Mark watched",
+                f"RunPlugin({url('set_watched', media_id=media_id, watched='1')})",
+            ),
+            (
+                "Apollo: Mark unwatched",
+                f"RunPlugin({url('set_watched', media_id=media_id, watched='0')})",
+            ),
+        ])
     if row.get("available_locally") and media_id:
         actions.insert(
             0,
@@ -720,6 +732,17 @@ def manual_unflag_stream(index):
         notify("Stream was not flagged", xbmcgui.NOTIFICATION_INFO)
 
 
+def set_watched(p):
+    media_id = str(p.get("media_id") or "").strip()
+    watched = str(p.get("watched") or "").strip().lower() in ("1", "true", "yes", "on")
+    try:
+        ams.set_watched(ADDON, media_id, watched)
+        notify("Marked watched" if watched else "Marked unwatched")
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        notify(f"Watched state update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
 def detect_device_compatibility():
     description, values = detect_compatibility(ADDON)
     labels = []
@@ -849,6 +872,8 @@ def dispatch():
         try_next()
     elif action == "flag_current":
         flag_current()
+    elif action == "set_watched":
+        set_watched(p)
     elif action == "detect_compatibility":
         detect_device_compatibility()
     elif action == "link_torbox":
