@@ -24,6 +24,7 @@ class FakeTag:
     def __init__(self):
         self.resume_calls = []
         self.playcount_calls = []
+        self.duration_calls = []
 
     def setTitle(self, value): pass
     def setUniqueID(self, value, key): pass
@@ -31,6 +32,7 @@ class FakeTag:
     def setEpisode(self, value): pass
     def setTvShowTitle(self, value): pass
     def setPlaycount(self, value): self.playcount_calls.append(value)
+    def setDuration(self, value): self.duration_calls.append(value)
     def setResumePoint(self, position, duration): self.resume_calls.append((position, duration))
 
 
@@ -62,7 +64,7 @@ class FakeWindow:
 
 
 class ResumeResolutionContractTests(unittest.TestCase):
-    def test_browse_item_does_not_delegate_resume_choice_to_kodi(self):
+    def test_browse_item_renders_canonical_ams_resume_state(self):
         ns = load_functions("playable_media")
         added = {}
         ns.update({
@@ -83,7 +85,11 @@ class ResumeResolutionContractTests(unittest.TestCase):
 
         ns["playable_media"]({"title": "Test", "imdb_id": "tt1"}, "movie")
 
-        self.assertEqual(added["item"].tag.resume_calls, [(0.0, 0.0)])
+        self.assertEqual(
+            added["item"].tag.resume_calls,
+            [(0.0, 0.0), (300.0, 1440.0)],
+        )
+        self.assertEqual(added["item"].tag.duration_calls, [1440])
         self.assertEqual(added["item"].properties["IsPlayable"], "true")
 
     def test_resolved_stream_does_not_reapply_ams_resume_point(self):
