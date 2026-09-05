@@ -1112,3 +1112,68 @@ Future Apollo integration should support:
 - minimal TV-side interaction
 
 while fitting the same canonical/client architecture rather than becoming a separate UI silo.
+
+## Runtime checkpoint — AMS 0.2.25 canonical runtime authority validated (2026-09-05)
+
+### Commits / release
+- Functional commit: `a1a552c` — Make canonical runtime authoritative for progress
+- Release commit: `d6c3c81` — Release Apollo Media Server 0.2.25
+- Production Home Assistant Supervisor add-on updated to AMS `0.2.25`.
+- Full AMS test suite passed in a disposable Python 3.12 container: `18 passed`.
+- Behavioral regression specifically reproduces the historical `42` poisoned-duration failure and verifies that canonical runtime still rejects implausible provider durations.
+
+### Root cause fixed
+AMS previously allowed an existing profile `Progress.duration_seconds` to become fallback runtime authority when `Media.runtime_seconds` was absent. A poisoned progress row could therefore become self-locking: legitimate later Kodi playback with the correct duration was rejected because it differed too much from the already-poisoned profile duration.
+
+AMS 0.2.25 separates these responsibilities:
+- `Media.runtime_seconds` is canonical media metadata and the only AMS runtime authority used for provider-duration validation.
+- `Progress.duration_seconds` is profile viewing state and must never become canonical metadata authority.
+- TMDB movie and episode detail enrichment now persists trusted runtime into `Media.runtime_seconds`.
+- Continue Watching exposes canonical `expected_duration_seconds` separately from the actual playback `duration_seconds`.
+
+### Production metadata backfill
+After deploying 0.2.25:
+`POST /metadata/sync`
+returned:
+`{"status":"ok","received":7845,"enriched":7809,"skipped":0,"failed":36}`
+
+For `42`:
+- media UUID: `1e32b039-d78e-498f-9397-14d370f4ab3b`
+- IMDb: `tt0453562`
+- TMDB: `109410`
+- canonical TMDB runtime after sync: `128` minutes
+- `expected_duration_seconds`: `7680`
+- Kodi canonical UI then displayed the real title duration around `2:08:16`, rather than the poisoned ~18-minute duration.
+
+### Production playback validation
+Historical poisoned profile state for `42` before the final test:
+- position: `957.208`
+- duration: `1086.185`
+- updated_at: `2026-09-01T00:32:50`
+
+User played `42` normally and stopped at approximately 25 minutes.
+
+AMS then reported:
+- position: `1498.939`
+- actual Kodi duration: `7695.691`
+- canonical expected duration: `7680`
+- progress fraction: `0.19477640149533032`
+- updated_at: `2026-09-05T05:26:17`
+
+This proves AMS accepted legitimate Kodi playback and naturally replaced the poisoned profile duration without manual database repair.
+
+### Architecture validated
+The production result validates the intended synchronization model:
+
+**Trusted provider/TMDB metadata -> canonical `Media.runtime_seconds` -> validation authority**
+
+**Kodi actual player -> validated playback observation -> `Progress.position_seconds` / `Progress.duration_seconds` -> profile viewing state**
+
+Kodi remains responsible for knowing/reporting actual playback. AMS remains authoritative for canonical profile state and trusted canonical metadata without blindly forcing Kodi state or allowing historical profile progress to impersonate metadata.
+
+### Next work
+Return to the Kodi canonical ListItem/resume synchronization work. The unreleased normal-click Kodi experiment remains intentionally dirty and separate:
+- `kodi/plugin.video.apollomedia/main.py`
+- `kodi/plugin.video.apollomedia/tests/test_resume_retry_intent.py`
+
+There is still no Kodi 0.10.54 release. Kodi 0.10.47 remains the last stable Kodi release.
