@@ -599,8 +599,9 @@ def _resolve_remote(stream, p):
     resume_mode = str(session.get("resume_mode") or "beginning")
     if resume_mode == "fixed":
         position = max(0.0, float(session.get("resume_position") or 0))
-        if position > 0:
-            item.setProperty("StartOffset", str(position))
+        resume_duration = max(0.0, float(session.get("resume_duration") or 0))
+        if position > 0 and resume_duration > 0:
+            tag.setResumePoint(position, resume_duration)
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
 

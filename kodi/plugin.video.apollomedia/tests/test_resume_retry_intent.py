@@ -39,12 +39,17 @@ class ResumeRetryIntentTests(unittest.TestCase):
         self.assertIn('resume_mode = "beginning"', MAIN)
         self.assertIn('"Play from beginning"', MAIN)
 
-    def test_fixed_resume_uses_start_offset(self):
+    def test_fixed_resume_uses_resolved_resume_point(self):
         self.assertIn(
             'resume_mode = str(session.get("resume_mode") or "beginning")',
             MAIN,
         )
-        self.assertIn('item.setProperty("StartOffset", str(position))', MAIN)
+        self.assertIn(
+            'resume_duration = max(0.0, float(session.get("resume_duration") or 0))',
+            MAIN,
+        )
+        self.assertIn('tag.setResumePoint(position, resume_duration)', MAIN)
+        self.assertNotIn('item.setProperty("StartOffset", str(position))', MAIN)
 
     def test_all_apollo_handoffs_force_noresume(self):
         self.assertIn('PlayMedia(" + play_url + ",noresume)', MAIN)

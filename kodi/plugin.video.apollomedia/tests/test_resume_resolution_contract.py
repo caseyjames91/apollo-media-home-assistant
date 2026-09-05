@@ -92,7 +92,7 @@ class ResumeResolutionContractTests(unittest.TestCase):
         self.assertEqual(added["item"].tag.duration_calls, [1440])
         self.assertEqual(added["item"].properties["IsPlayable"], "true")
 
-    def test_resolved_stream_does_not_reapply_ams_resume_point(self):
+    def test_resolved_stream_applies_session_resume_without_second_ams_decision(self):
         ns = load_functions("_resolve_remote")
         resolved = {}
 
@@ -113,6 +113,7 @@ class ResumeResolutionContractTests(unittest.TestCase):
                 load=lambda: {
                     "resume_mode": "fixed",
                     "resume_position": 300.0,
+                    "resume_duration": 1440.0,
                 }
             ),
         })
@@ -127,8 +128,11 @@ class ResumeResolutionContractTests(unittest.TestCase):
         ns["_resolve_remote"](stream, params)
 
         self.assertTrue(resolved["succeeded"])
-        self.assertEqual(resolved["item"].tag.resume_calls, [])
-        self.assertEqual(resolved["item"].properties["StartOffset"], "300.0")
+        self.assertEqual(
+            resolved["item"].tag.resume_calls,
+            [(300.0, 1440.0)],
+        )
+        self.assertNotIn("StartOffset", resolved["item"].properties)
         self.assertEqual(resolved["item"].properties["IsPlayable"], "true")
 
 
