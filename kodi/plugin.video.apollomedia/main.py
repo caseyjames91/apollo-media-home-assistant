@@ -125,6 +125,10 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             duration = max(0.0, float(progress[1] or 0))
             watched = bool(progress[2]) if len(progress) > 2 else False
 
+        if duration > 0.0:
+            tag.setDuration(int(round(duration)))
+        if position > 0.0 and duration > 0.0:
+            tag.setResumePoint(position, duration)
         if watched:
             tag.setPlaycount(1)
     except Exception as exc:
@@ -608,8 +612,15 @@ def _save_source_session(streams, p):
     start_from_beginning = str(
         p.get("start_from_beginning") or ""
     ).strip().lower() in ("1", "true", "yes", "on")
+    native_resume = None
+    if HANDLE >= 0 and len(sys.argv) > 3:
+        native_token = str(sys.argv[3] or "").strip().lower()
+        if native_token == "resume:true":
+            native_resume = True
+        elif native_token == "resume:false":
+            native_resume = False
 
-    if start_from_beginning:
+    if start_from_beginning or native_resume is False:
         resume_position, resume_duration = 0.0, 0.0
         resume_mode = "beginning"
     else:
@@ -739,7 +750,11 @@ def play_remote(p, choose=False):
             xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             return
 
-        _resolve_remote(stream, p)
+        selected = source_session.load() or {}
+        index = int(selected.get("index") or 0)
+        play_url = url("play_session_stream", index=index)
+        xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
+        return
     except Exception as exc:
         notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
         xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
