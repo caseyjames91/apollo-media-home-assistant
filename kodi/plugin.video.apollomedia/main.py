@@ -127,8 +127,6 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
 
         if watched:
             tag.setPlaycount(1)
-        elif position > 0 and duration > 0:
-            tag.setResumePoint(position, duration)
     except Exception as exc:
         xbmc.log(f"[Apollo] progress rendering failed: {exc}", xbmc.LOGWARNING)
 
@@ -461,7 +459,11 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
         show_title=show_title,
     )
     actions = [
-        ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})")
+        (
+            "Play from beginning",
+            f"RunPlugin({url('play_remote', start_from_beginning='1', **remote)})",
+        ),
+        ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})"),
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
     if media_id:
@@ -590,7 +592,7 @@ def _resolve_remote(stream, p):
 
 
     session = source_session.load() or {}
-    resume_mode = str(session.get("resume_mode") or "native")
+    resume_mode = str(session.get("resume_mode") or "beginning")
     if resume_mode == "fixed":
         position = max(0.0, float(session.get("resume_position") or 0))
         if position > 0:
@@ -603,12 +605,28 @@ def _save_source_session(streams, p):
     imdb = str(p.get("imdb") or "")
     season = int(p.get("season") or 0)
     episode = int(p.get("episode") or 0)
-    resume_position, resume_duration = ams.resume(
-        ADDON,
-        imdb,
-        season,
-        episode,
-    )
+    start_from_beginning = str(
+        p.get("start_from_beginning") or ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+
+    if start_from_beginning:
+        resume_position, resume_duration = 0.0, 0.0
+        resume_mode = "beginning"
+    else:
+        resume_position, resume_duration, _watched = ams.progress_for(
+            ADDON,
+            {
+                "media_id": str(p.get("media_id") or ""),
+                "canonical_id": str(p.get("canonical_id") or ""),
+                "imdb_id": imdb,
+                "season": season,
+                "episode": episode,
+            },
+            season,
+            episode,
+        )
+        resume_mode = "fixed" if resume_position > 0 else "beginning"
+
     session = source_session.save(
         streams,
         imdb,
@@ -618,7 +636,7 @@ def _save_source_session(streams, p):
         str(p.get("title") or "Remote"),
         resume_position=resume_position,
         resume_duration=resume_duration,
-        resume_mode="native",
+        resume_mode=resume_mode,
     )
     # Preserve canonical Apollo identity alongside the proven session format.
     session["canonical_id"] = str(p.get("canonical_id") or "")
@@ -691,6 +709,17 @@ def play_remote(p, choose=False):
         session = _save_source_session(streams, p)
         stream = source_session.current()
 
+        start_from_beginning = str(
+            p.get("start_from_beginning") or ""
+        ).strip().lower() in ("1", "true", "yes", "on")
+
+        if start_from_beginning:
+            selected = source_session.load() or {}
+            index = int(selected.get("index") or 0)
+            play_url = url("play_session_stream", index=index)
+            xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
+            return
+
         if choose:
             stream = _choose_stream_dialog()
             if not stream:
@@ -701,9 +730,12 @@ def play_remote(p, choose=False):
             # fresh playable plugin URL.
             selected = source_session.load() or {}
             index = int(selected.get("index") or 0)
-            xbmc.executebuiltin(
-                "PlayMedia(" + url("play_session_stream", index=index) + ")"
-            )
+            play_url = url("play_session_stream", index=index)
+            selected_mode = str(selected.get("resume_mode") or "beginning")
+            if selected_mode == "beginning":
+                xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
+            else:
+                xbmc.executebuiltin("PlayMedia(" + play_url + ")")
             return
 
         if not stream:
@@ -748,7 +780,7 @@ def try_next():
         "play_session_stream",
         index=int(session.get("index") or 0),
     )
-    resume_mode = str(session.get("resume_mode") or "native")
+    resume_mode = str(session.get("resume_mode") or "beginning")
     if resume_mode == "beginning":
         xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
     else:

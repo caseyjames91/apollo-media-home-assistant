@@ -10,7 +10,8 @@ class TestProviderEngineContract(unittest.TestCase):
 
     def test_manual_playback_handoff(self):
         main = (ROOT / "main.py").read_text()
-        self.assertIn('PlayMedia(" + url("play_session_stream"', main)
+        self.assertIn('play_url = url("play_session_stream", index=index)', main)
+        self.assertIn('PlayMedia(" + play_url', main)
 
     def test_profile_cache_present(self):
         ams = (ROOT / "resources/lib/ams.py").read_text()

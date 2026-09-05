@@ -62,7 +62,7 @@ class FakeWindow:
 
 
 class ResumeResolutionContractTests(unittest.TestCase):
-    def test_browse_item_exposes_resume_point_for_kodi_native_choice(self):
+    def test_browse_item_does_not_delegate_resume_choice_to_kodi(self):
         ns = load_functions("playable_media")
         added = {}
         ns.update({
@@ -83,7 +83,7 @@ class ResumeResolutionContractTests(unittest.TestCase):
 
         ns["playable_media"]({"title": "Test", "imdb_id": "tt1"}, "movie")
 
-        self.assertEqual(added["item"].tag.resume_calls[-1], (300.0, 1440.0))
+        self.assertEqual(added["item"].tag.resume_calls, [(0.0, 0.0)])
         self.assertEqual(added["item"].properties["IsPlayable"], "true")
 
     def test_resolved_stream_does_not_reapply_ams_resume_point(self):
@@ -103,7 +103,12 @@ class ResumeResolutionContractTests(unittest.TestCase):
             "HANDLE": 7,
             "ADDON": object(),
             "ams": types.SimpleNamespace(resume=forbidden_resume),
-            "source_session": types.SimpleNamespace(load=lambda: {"resume_mode": "native"}),
+            "source_session": types.SimpleNamespace(
+                load=lambda: {
+                    "resume_mode": "fixed",
+                    "resume_position": 300.0,
+                }
+            ),
         })
 
         stream = {
@@ -117,7 +122,7 @@ class ResumeResolutionContractTests(unittest.TestCase):
 
         self.assertTrue(resolved["succeeded"])
         self.assertEqual(resolved["item"].tag.resume_calls, [])
-        self.assertNotIn("StartOffset", resolved["item"].properties)
+        self.assertEqual(resolved["item"].properties["StartOffset"], "300.0")
         self.assertEqual(resolved["item"].properties["IsPlayable"], "true")
 
 
