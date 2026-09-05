@@ -57,17 +57,24 @@ class ResumeRetryIntentTests(unittest.TestCase):
         self.assertNotIn('PlayMedia(" + play_url + ")', MAIN)
         self.assertNotIn('PlayMedia({play_url})', SERVICE)
 
-    def test_normal_remote_activation_uses_session_handoff(self):
+    def test_normal_remote_activation_resolves_session_handoff(self):
         play_remote = MAIN.split("def play_remote(", 1)[1].split(
             "\ndef current_stream_info(", 1
         )[0]
-
         self.assertIn(
             'play_url = url("play_session_stream", index=index)',
             play_remote,
         )
         self.assertIn(
-            'PlayMedia(" + play_url + ",noresume)',
+            'item = xbmcgui.ListItem(path=play_url)',
+            play_remote,
+        )
+        self.assertIn(
+            'item.setProperty("IsPlayable", "true")',
+            play_remote,
+        )
+        self.assertIn(
+            'xbmcplugin.setResolvedUrl(HANDLE, True, item)',
             play_remote,
         )
         self.assertNotIn(

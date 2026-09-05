@@ -754,7 +754,9 @@ def play_remote(p, choose=False):
         selected = source_session.load() or {}
         index = int(selected.get("index") or 0)
         play_url = url("play_session_stream", index=index)
-        xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
+        item = xbmcgui.ListItem(path=play_url)
+        item.setProperty("IsPlayable", "true")
+        xbmcplugin.setResolvedUrl(HANDLE, True, item)
         return
     except Exception as exc:
         notify(f"Remote playback failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
