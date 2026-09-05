@@ -146,10 +146,21 @@ def _year(value) -> int | None:
     return None
 
 
+def _runtime_seconds(value) -> int | None:
+    try:
+        minutes = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    return minutes * 60 if minutes > 0 else None
+
+
 def _apply_movie(media: Media, details: dict) -> None:
     media.tmdb_id = str(details.get("id") or media.tmdb_id or "") or None
     media.year = _year(details.get("release_date")) or media.year
     media.overview = details.get("overview") or media.overview
+    runtime_seconds = _runtime_seconds(details.get("runtime"))
+    if runtime_seconds is not None:
+        media.runtime_seconds = runtime_seconds
     media.poster_url = _image_url(details.get("poster_path")) or media.poster_url
     media.backdrop_url = _image_url(details.get("backdrop_path")) or media.backdrop_url
 
@@ -261,6 +272,9 @@ async def sync_metadata(db: Session) -> dict:
                         or media.year
                     )
                     media.overview = episode_details.get("overview") or media.overview
+                    runtime_seconds = _runtime_seconds(episode_details.get("runtime"))
+                    if runtime_seconds is not None:
+                        media.runtime_seconds = runtime_seconds
 
                     # Continue Watching should visually represent the series.
                     media.poster_url = (
