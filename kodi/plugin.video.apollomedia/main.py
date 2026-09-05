@@ -595,12 +595,6 @@ def _resolve_remote(stream, p):
         position = max(0.0, float(session.get("resume_position") or 0))
         if position > 0:
             item.setProperty("StartOffset", str(position))
-    elif resume_mode == "beginning":
-        # The user already chose "Play from beginning" on the first source.
-        # Carry that decision across automatic source retries without letting
-        # Kodi reopen its native resume dialog.
-        item.setProperty("StartOffset", "0")
-
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
 
@@ -750,12 +744,15 @@ def try_next():
         return
     p = _session_params(session)
     xbmc.Player().stop()
-    xbmc.executebuiltin(
-        "PlayMedia(" + url(
-            "play_session_stream",
-            index=int(session.get("index") or 0),
-        ) + ")"
+    play_url = url(
+        "play_session_stream",
+        index=int(session.get("index") or 0),
     )
+    resume_mode = str(session.get("resume_mode") or "native")
+    if resume_mode == "beginning":
+        xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
+    else:
+        xbmc.executebuiltin("PlayMedia(" + play_url + ")")
 
 
 def play_session_stream(p):
