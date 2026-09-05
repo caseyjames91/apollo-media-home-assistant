@@ -27,9 +27,11 @@ class ResumeRetryIntentTests(unittest.TestCase):
         )
         self.assertIn('item.setProperty("StartOffset", str(position))', MAIN)
 
-    def test_beginning_retry_forces_noresume(self):
+    def test_all_apollo_handoffs_force_noresume(self):
         self.assertIn('PlayMedia(" + play_url + ",noresume)', MAIN)
         self.assertIn('PlayMedia({play_url},noresume)', SERVICE)
+        self.assertNotIn('PlayMedia(" + play_url + ")', MAIN)
+        self.assertNotIn('PlayMedia({play_url})', SERVICE)
 
     def test_service_no_longer_infers_native_resume_choice(self):
         self.assertNotIn("def _capture_resume_intent(self):", SERVICE)

@@ -731,11 +731,7 @@ def play_remote(p, choose=False):
             selected = source_session.load() or {}
             index = int(selected.get("index") or 0)
             play_url = url("play_session_stream", index=index)
-            selected_mode = str(selected.get("resume_mode") or "beginning")
-            if selected_mode == "beginning":
-                xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
-            else:
-                xbmc.executebuiltin("PlayMedia(" + play_url + ")")
+            xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
             return
 
         if not stream:
@@ -780,11 +776,7 @@ def try_next():
         "play_session_stream",
         index=int(session.get("index") or 0),
     )
-    resume_mode = str(session.get("resume_mode") or "beginning")
-    if resume_mode == "beginning":
-        xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
-    else:
-        xbmc.executebuiltin("PlayMedia(" + play_url + ")")
+    xbmc.executebuiltin("PlayMedia(" + play_url + ",noresume)")
 
 
 def play_session_stream(p):

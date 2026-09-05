@@ -258,11 +258,7 @@ class MonitorPlayer(xbmc.Player):
             "plugin://plugin.video.apollomedia/"
             f"?action=play_session_stream&index={index}"
         )
-        resume_mode = str(session.get("resume_mode") or "native")
-        if resume_mode == "beginning":
-            xbmc.executebuiltin(f"PlayMedia({play_url},noresume)")
-        else:
-            xbmc.executebuiltin(f"PlayMedia({play_url})")
+        xbmc.executebuiltin(f"PlayMedia({play_url},noresume)")
 
     def emit(self):
         if not self.canonical_id or self.suppress_progress:
