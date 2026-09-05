@@ -102,8 +102,8 @@ class ResumeResolutionContractTests(unittest.TestCase):
             ),
             "HANDLE": 7,
             "ADDON": object(),
-            "ADDON": object(),
             "ams": types.SimpleNamespace(resume=forbidden_resume),
+            "source_session": types.SimpleNamespace(load=lambda: {"resume_mode": "native"}),
         })
 
         stream = {
@@ -117,6 +117,7 @@ class ResumeResolutionContractTests(unittest.TestCase):
 
         self.assertTrue(resolved["succeeded"])
         self.assertEqual(resolved["item"].tag.resume_calls, [])
+        self.assertNotIn("StartOffset", resolved["item"].properties)
         self.assertEqual(resolved["item"].properties["IsPlayable"], "true")
 
 

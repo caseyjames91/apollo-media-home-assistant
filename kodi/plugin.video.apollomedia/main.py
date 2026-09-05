@@ -589,18 +589,42 @@ def _resolve_remote(stream, p):
             tag.setTvShowTitle(show_title)
 
 
+    session = source_session.load() or {}
+    resume_mode = str(session.get("resume_mode") or "native")
+    if resume_mode == "fixed":
+        position = max(0.0, float(session.get("resume_position") or 0))
+        if position > 0:
+            item.setProperty("StartOffset", str(position))
+    elif resume_mode == "beginning":
+        # The user already chose "Play from beginning" on the first source.
+        # Carry that decision across automatic source retries without letting
+        # Kodi reopen its native resume dialog.
+        item.setProperty("StartOffset", "0")
+
     item.setProperty("IsPlayable", "true")
     xbmcplugin.setResolvedUrl(HANDLE, True, item)
 
 
 def _save_source_session(streams, p):
+    imdb = str(p.get("imdb") or "")
+    season = int(p.get("season") or 0)
+    episode = int(p.get("episode") or 0)
+    resume_position, resume_duration = ams.resume(
+        ADDON,
+        imdb,
+        season,
+        episode,
+    )
     session = source_session.save(
         streams,
-        str(p.get("imdb") or ""),
+        imdb,
         "series" if int(p.get("episode") or 0) > 0 or str(p.get("media_type") or "") in ("series", "episode", "show") else "movie",
         int(p.get("season") or 0),
         int(p.get("episode") or 0),
         str(p.get("title") or "Remote"),
+        resume_position=resume_position,
+        resume_duration=resume_duration,
+        resume_mode="native",
     )
     # Preserve canonical Apollo identity alongside the proven session format.
     session["canonical_id"] = str(p.get("canonical_id") or "")

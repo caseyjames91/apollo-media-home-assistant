@@ -282,7 +282,28 @@ class MonitorPlayer(xbmc.Player):
                 duration,
             )
 
+    def _capture_resume_intent(self):
+        try:
+            session = source_session.load() or {}
+            if str(session.get("resume_mode") or "native") != "native":
+                return
+            stored = max(0.0, float(session.get("resume_position") or 0))
+            if stored <= 0:
+                return
+            actual = max(0.0, float(self.getTime() or 0))
+            if actual < 5.0:
+                source_session.update_resume(0, 0, "beginning")
+            else:
+                source_session.update_resume(
+                    actual,
+                    float(self.getTotalTime() or 0),
+                    "fixed",
+                )
+        except Exception:
+            pass
+
     def onAVStarted(self):
+        self._capture_resume_intent()
         self.identify()
         self.sample()
 
