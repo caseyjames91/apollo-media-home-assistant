@@ -1,3 +1,112 @@
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-05
+
+> **READ THIS FIRST.** This checkpoint supersedes older current-state/next-task statements later in this file. Historical investigation below is retained intentionally.
+
+## Current known-good state
+
+- Branch: `main`
+- Git checkpoint before this handoff update: `8d0e8ea`
+- Working tree at checkpoint: **clean**
+- Stable Kodi: **0.10.56**
+- Runtime-tested Kodi: **0.10.56**
+- Stable tag: `stable/0.10.56`
+- Kodi functional fix: `f7f8324 — Resolve remote playback handoff through Kodi`
+- Kodi release: `533dd88 — Release Apollo Media 0.10.56`
+- Stable promotion: `8d0e8ea — Mark Apollo Media 0.10.56 stable`
+- Stable/deployed AMS: **0.2.25**
+- AMS functional fix: `a1a552c — Make canonical runtime authoritative for progress`
+- AMS release: `d6c3c81 — Release Apollo Media Server 0.2.25`
+
+## Kodi 0.10.56 runtime gate — PASSED
+
+Final Simpsons S01E01 test proved the complete remote-resume failure path:
+
+1. Native Resume choice was preserved.
+2. Known bad 30-second candidate opened.
+3. Validator rejected and persistently flagged it `bad_stream`.
+4. Source session advanced from index 0 to index 1.
+5. Index 1 automatically opened.
+6. Original fixed resume intent survived: `17.585 / 1395.008`.
+7. Valid retry resumed without a second resume prompt or visible post-start seek.
+8. Rejected candidate produced **no AMS progress write**.
+9. The old `Playlist Player: skipping unplayable item ... play_remote` parent-lifecycle failure did not recur.
+
+## Root cause fixed in 0.10.56
+
+0.10.55 launched `PlayMedia(play_session_stream...,noresume)` from normal `play_remote()` while leaving the canonical parent invocation unresolved. Kodi later treated that parent as unplayable and killed child playback before the validator could persist rejection/advance.
+
+0.10.56 makes normal playable `play_remote()` resolve the parent through Kodi to `play_session_stream` using `xbmcplugin.setResolvedUrl()`. Context-menu/RunPlugin and retry paths still use `PlayMedia(...,noresume)` where appropriate.
+
+Positive resolved-stream resume uses `VideoInfoTag.setResumePoint(position, duration)`, **not numeric StartOffset**. Runtime proved this starts at the requested resume point without a visible seek.
+
+## Binding playback architecture
+
+- Rooms own playback devices; profiles own viewing state.
+- `Media.runtime_seconds` is canonical expected-runtime authority.
+- `Progress.duration_seconds` is profile viewing state, never canonical metadata authority.
+- Kodi owns actual playback and reports validated observations to AMS.
+- Initiating client owns playback decisions.
+- Kodi-origin playback may use Kodi native Resume/Beginning.
+- Card-origin playback should send explicit intent and must not unexpectedly put a decision dialog on the TV.
+- Bad-stream retries preserve the original intent silently.
+- Rejected playback must not mutate legitimate profile state.
+- Transient source technical metadata must not own canonical title metadata.
+- Do not implement resume as a visible start-at-zero then seek.
+
+## AMS 0.2.25 — production validated
+
+The historical `42` poisoned-duration bug is fixed.
+
+Trusted TMDB/provider metadata -> `Media.runtime_seconds` -> validation authority.
+
+Validated Kodi playback -> `Progress.position_seconds` / `Progress.duration_seconds` -> profile state.
+
+Production metadata sync populated canonical runtime for `42` as 7680 seconds. A later correct ~7696-second Kodi playback was accepted and naturally repaired the previously poisoned profile progress.
+
+Do not revisit this bug without new regression evidence.
+
+## Resume implementation facts
+
+Native playable invocation tokens established by runtime probing:
+
+- `resume:true` = Kodi native Resume
+- `resume:false` = Kodi native Beginning
+- trust these as native choices only when plugin `HANDLE >= 0`
+
+Source-session intent survives remote retries.
+
+`noresume` remains intentional on transient `PlayMedia` handoffs/retries to prevent a second unrelated native resume dialog.
+
+## Current priority
+
+Kodi 0.10.56 + AMS 0.2.25 are the known-good stable playback baseline.
+
+Do not reopen the solved resume/bad-stream lifecycle chain without new evidence.
+
+Continue completing Apollo from this baseline. Retained roadmap includes:
+
+- Ensure Kodi Ready lifecycle
+- Home Assistant card shared-client/playback work
+- Recent Sessions / Resume Here
+- Apollo Companion Android MediaSession integration
+- YouTube integration
+
+## Recovery procedure
+
+On a new conversation:
+
+1. Read this checkpoint and the relevant historical sections below.
+2. Run `git status --short`.
+3. Inspect `HEAD` and `origin/main`.
+4. Compare with checkpoint `8d0e8ea`.
+5. Inspect newer commits before changing source.
+6. Verify runtime versions when relevant.
+7. Update this file after meaningful transitions.
+
+Desired recovery prompt: **Resume Apollo.**
+
+---
+
 # Apollo Media Project Handoff
 
 Last updated: 2026-09-05
