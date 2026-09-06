@@ -166,6 +166,7 @@ def home():
     folder("Library Movies", url("library_movies"))
     folder("Library Shows", url("library_shows"))
     folder("Continue Watching", url("continue"))
+    folder("Next Up", url("next_up"))
     folder("Popular Movies", url("discovery", mode="popular", media_type="movie"))
     folder("Popular Shows", url("discovery", mode="popular", media_type="show"))
     folder("Trending Movies", url("discovery", mode="trending", media_type="movie"))
@@ -304,6 +305,42 @@ def continue_watching():
     except Exception as exc:
         notify(f"AMS Continue Watching failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies")
+
+def next_up():
+    """Render AMS-owned profile Next Up through Apollo's canonical playback path."""
+    try:
+        rows = ams.next_up(ADDON)
+        for row in rows:
+            season = int(row.get("season") or 0)
+            episode = int(row.get("episode") or 0)
+            if episode <= 0:
+                continue
+
+            title = str(row.get("title") or f"Episode {episode}")
+            show_title = str(
+                row.get("series_title") or row.get("show_title") or ""
+            )
+            label = (
+                f"{show_title or title} — "
+                f"S{season:02d}E{episode:02d} — {title}"
+            )
+            playable_media(
+                row,
+                "series",
+                label=label,
+                season=season,
+                episode=episode,
+                show_title=show_title,
+                progress=(
+                    row.get("position_seconds") or 0,
+                    row.get("duration_seconds") or 0,
+                    bool(row.get("watched")),
+                ),
+            )
+    except Exception as exc:
+        notify(f"AMS Next Up failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    end("episodes")
+
 
 def _canonical_detail_target(row):
     media_type = str(row.get("media_type") or "").lower()
@@ -973,6 +1010,8 @@ def dispatch():
         season(p.get("imdb"), int(p.get("season") or 0), p.get("title") or "Show")
     elif action == "continue":
         continue_watching()
+    elif action == "next_up":
+        next_up()
     elif action == "discovery":
         discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie")
     elif action == "search":

@@ -205,6 +205,11 @@ def continue_watching(addon):
     return rows if isinstance(rows, list) else []
 
 
+def next_up(addon):
+    rows = request(addon, f"profiles/{profile_id(addon)}/next-up", timeout=15) or []
+    return rows if isinstance(rows, list) else []
+
+
 def resume(addon, imdb_id, season=0, episode=0):
     target = str(imdb_id or "").strip().casefold()
     season = int(season or 0)
