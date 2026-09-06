@@ -28,3 +28,8 @@ class Media(Base):
 
     progress = relationship("Progress", back_populates="media", cascade="all, delete-orphan")
     local_sources = relationship("LocalAvailability", back_populates="media", cascade="all, delete-orphan")
+    watchlist_items = relationship(
+        "WatchlistItem",
+        back_populates="media",
+        cascade="all, delete-orphan",
+    )
