@@ -1,4 +1,39 @@
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-05
+## Checkpoint — Kodi 0.10.58 Next Up runtime validation
+
+- Checkpoint base HEAD before this handoff update: `578a8c6634df682307855e364dce553ca3ab8cf3`
+- Kodi release/runtime candidate: `0.10.58`
+- AMS runtime: `0.2.26`
+- Functional commit: `dcd7fcc — Add Kodi Up Next episode handoff`
+- Release commit: `578a8c6 — Release Apollo Media 0.10.58`
+- Kodi test gate: `77/77` passed before functional commit and again during release.
+- Kodi 0.10.57 persistent Next Up browse/play runtime gate passed:
+  - AMS Next Up rendered American Dad! S01E02 “Threat Levels”.
+  - Selecting it played the correct episode through the canonical Apollo playback path.
+  - Once partial progress existed, it disappeared from Next Up and appeared in Continue Watching.
+- Kodi 0.10.58 end-of-episode Next Episode runtime gate passed after installing/enabling Kodi `service.upnext` on the headless test client:
+  - Apollo/AMS resolved S01E03 “Stan Knows Best”.
+  - Kodi log confirmed `[Apollo Media 0.10] Up Next prepared: S01E03 Stan Knows Best`.
+  - Up Next displayed the near-end prompt.
+  - Accepting the prompt started the successor correctly through Apollo.
+  - End-of-episode handoff uses explicit Beginning intent.
+- Initial no-prompt result was environmental, not an Apollo resolver failure: `service.upnext` was absent from the headless Kodi client. Installing it made the existing 0.10.58 integration work.
+
+### New TODOs captured at this checkpoint
+
+1. **Investigate remote-stream startup latency regression.**
+   User observed that remote streams seem slower to start than before the resume/lifecycle fixes. Diagnose with timings across the full ownership chain before changing behavior: AMS/provider/source resolution, parent-plugin lifecycle, source-session handling, resume metadata setup, remote duration validation, and Kodi player open. Do not assume the resume fix itself is the cause until measured.
+
+2. **Apollo branded playback splash/loading state.**
+   When playback is requested, show the movie/show backdrop while Kodi resolves/opens the stream, preferably with transparent show/movie logo when available and text-title fallback. Keep the splash continuous across source resolution and bad-stream retry so Kodi intermediate/loading UI does not flash through. Dismiss on `onAVStarted()` or terminal failure. This should later compose with the planned Ensure Kodi Ready lifecycle so launch/resolution/retry feels like one continuous Apollo-owned starting state.
+
+### Release gate
+
+Kodi `0.10.58` has passed the intended Next Up runtime validation and is eligible for stable promotion. This checkpoint update and stable tag are the next release actions.
+
+### Next product work
+
+After stable promotion/checkpoint, proceed to AMS-owned Watchlist unless the user chooses to prioritize the startup-latency investigation or playback splash first.
 
 > **READ THIS FIRST.** This checkpoint supersedes older current-state/next-task statements later in this file. Historical investigation below is retained intentionally.
 
