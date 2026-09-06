@@ -391,9 +391,10 @@ def _canonical_detail_target(row):
     )
 
 
-def discovery_list(mode, media_type):
+def discovery_list(mode, media_type, page=1):
+    page = max(1, int(page or 1))
     try:
-        rows=ams.discovery(ADDON,mode,media_type)
+        rows=ams.discovery(ADDON,mode,media_type,page=page)
         for row in rows:
             title=str(row.get("title") or "Unknown")
             if media_type=="movie":
@@ -406,12 +407,15 @@ def discovery_list(mode, media_type):
                     str(row.get("imdb_id") or ""),
                     context=_watchlist_context(row, "show"),
                 )
+        if len(rows) >= 20:
+            folder("More Results", url("discovery", mode=mode, media_type=media_type, page=page + 1))
     except Exception as exc:
         notify(f"AMS discovery failed: {exc}",xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type=="movie" else "tvshows")
 
-def search(media_type):
-    query = xbmcgui.Dialog().input(
+def search(media_type, query="", page=1):
+    page = max(1, int(page or 1))
+    query = str(query or "").strip() or xbmcgui.Dialog().input(
         "Search Movies" if media_type == "movie" else "Search Shows",
         type=xbmcgui.INPUT_ALPHANUM,
     ).strip()
@@ -419,7 +423,7 @@ def search(media_type):
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False, cacheToDisc=False)
         return
     try:
-        rows = ams.discovery(ADDON, "search", media_type, query)
+        rows = ams.discovery(ADDON, "search", media_type, query, page=page)
         for row in rows:
             title = str(row.get("title") or "Unknown")
             if media_type=="movie":
@@ -432,6 +436,8 @@ def search(media_type):
                     str(row.get("imdb_id") or ""),
                     context=_watchlist_context(row, "show"),
                 )
+        if len(rows) >= 20:
+            folder("More Results", url("search", media_type=media_type, query=query, page=page + 1))
     except Exception as exc:
         notify(f"AMS search failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type == "movie" else "tvshows")
@@ -1106,9 +1112,9 @@ def dispatch():
     elif action == "watchlist":
         watchlist()
     elif action == "discovery":
-        discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie")
+        discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie", int(p.get("page") or 1))
     elif action == "search":
-        search(p.get("media_type") or "movie")
+        search(p.get("media_type") or "movie", p.get("query") or "", int(p.get("page") or 1))
     elif action == "discovery_show":
         discovery_show(p)
     elif action == "discovery_season":
