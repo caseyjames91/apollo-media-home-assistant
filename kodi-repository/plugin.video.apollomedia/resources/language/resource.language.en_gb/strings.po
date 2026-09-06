@@ -1,0 +1,180 @@
+# Kodi language file
+msgid ""
+msgstr ""
+"Language: en_GB\n"
+
+msgctxt "#32000"
+msgid "Remote Sources"
+msgstr "Remote Sources"
+
+msgctxt "#32001"
+msgid "Providers"
+msgstr "Providers"
+
+msgctxt "#32002"
+msgid "Comet"
+msgstr "Comet"
+
+msgctxt "#32003"
+msgid "Torrentio"
+msgstr "Torrentio"
+
+msgctxt "#32004"
+msgid "Debridio"
+msgstr "Debridio"
+
+msgctxt "#32005"
+msgid "Debridio URL"
+msgstr "Debridio URL"
+
+msgctxt "#32006"
+msgid "TorBox Token"
+msgstr "TorBox Token"
+
+msgctxt "#32007"
+msgid "Video Compatibility"
+msgstr "Video Compatibility"
+
+msgctxt "#32008"
+msgid "Allow 2160p / 4K"
+msgstr "Allow 2160p / 4K"
+
+msgctxt "#32009"
+msgid "Allow 1080p"
+msgstr "Allow 1080p"
+
+msgctxt "#32010"
+msgid "Allow 720p"
+msgstr "Allow 720p"
+
+msgctxt "#32011"
+msgid "Allow 480p / SD"
+msgstr "Allow 480p / SD"
+
+msgctxt "#32012"
+msgid "Allow SDR"
+msgstr "Allow SDR"
+
+msgctxt "#32013"
+msgid "Allow HDR10"
+msgstr "Allow HDR10"
+
+msgctxt "#32014"
+msgid "Allow Dolby Vision"
+msgstr "Allow Dolby Vision"
+
+msgctxt "#32015"
+msgid "Allow HDR10+"
+msgstr "Allow HDR10+"
+
+msgctxt "#32016"
+msgid "Allow HLG"
+msgstr "Allow HLG"
+
+msgctxt "#32017"
+msgid "Allow AV1"
+msgstr "Allow AV1"
+
+msgctxt "#32018"
+msgid "Allow HEVC"
+msgstr "Allow HEVC"
+
+msgctxt "#32019"
+msgid "Allow H.264"
+msgstr "Allow H.264"
+
+msgctxt "#32020"
+msgid "Allow MPEG-2"
+msgstr "Allow MPEG-2"
+
+msgctxt "#32021"
+msgid "Allow VC-1"
+msgstr "Allow VC-1"
+
+msgctxt "#32022"
+msgid "Allow TrueHD / Atmos"
+msgstr "Allow TrueHD / Atmos"
+
+msgctxt "#32023"
+msgid "Allow DTS"
+msgstr "Allow DTS"
+
+msgctxt "#32024"
+msgid "Allow DTS-HD / DTS:X"
+msgstr "Allow DTS-HD / DTS:X"
+
+msgctxt "#32025"
+msgid "Allow E-AC-3"
+msgstr "Allow E-AC-3"
+
+msgctxt "#32026"
+msgid "Allow AC-3"
+msgstr "Allow AC-3"
+
+msgctxt "#32027"
+msgid "Allow AAC"
+msgstr "Allow AAC"
+
+msgctxt "#32028"
+msgid "Allow unknown formats"
+msgstr "Allow unknown formats"
+
+msgctxt "#32029"
+msgid "Detection"
+msgstr "Detection"
+
+msgctxt "#32030"
+msgid "Detected Device"
+msgstr "Detected Device"
+
+msgctxt "#32031"
+msgid "Apollo Media Server"
+msgstr "Apollo Media Server"
+
+msgctxt "#32032"
+msgid "AMS URL"
+msgstr "AMS URL"
+
+msgctxt "#32033"
+msgid "AMS Profile Name"
+msgstr "AMS Profile Name"
+
+msgctxt "#32034"
+msgid "AMS Profile ID"
+msgstr "AMS Profile ID"
+
+msgctxt "#32035"
+msgid "AMS Device Key"
+msgstr "AMS Device Key"
+
+msgctxt "#32036"
+msgid "Setup & Maintenance"
+msgstr "Setup & Maintenance"
+
+msgctxt "#32037"
+msgid "Link / Relink TorBox"
+msgstr "Link / Relink TorBox"
+
+msgctxt "#32038"
+msgid "Detect Device Compatibility"
+msgstr "Detect Device Compatibility"
+
+msgctxt "#32039"
+msgid "Stream Ranking & Language"
+msgstr "Stream Ranking & Language"
+
+msgctxt "#32040"
+msgid "Provider Priority"
+msgstr "Provider Priority"
+
+msgctxt "#32041"
+msgid "Preferred Languages"
+msgstr "Preferred Languages"
+
+msgctxt "#32042"
+msgid "Allowed Languages"
+msgstr "Allowed Languages"
+
+msgctxt "#32043"
+msgid "Excluded Languages"
+msgstr "Excluded Languages"

@@ -1,0 +1,225 @@
+<?xml version='1.0' encoding='utf-8'?>
+<settings version="1">
+  <section id="plugin.video.apollomedia">
+    <category id="sources" label="32000">
+      <group id="1" label="32001">
+        <setting id="provider_comet" type="boolean" label="32002">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="provider_torrentio" type="boolean" label="32003">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="provider_debridio" type="boolean" label="32004">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="debridio_url" type="string" label="32005">
+          <level>0</level>
+          <default />
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string" />
+        </setting>
+        <setting id="torbox_token" type="string" label="32006">
+          <level>0</level>
+          <default />
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <hidden>true</hidden>
+          </control>
+        </setting>
+      </group>
+      <group id="2" label="32007">
+        <setting id="allow_2160p" type="boolean" label="32008">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_1080p" type="boolean" label="32009">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_720p" type="boolean" label="32010">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_480p" type="boolean" label="32011">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_sdr" type="boolean" label="32012">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_hdr10" type="boolean" label="32013">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_dolby_vision" type="boolean" label="32014">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_hdr10plus" type="boolean" label="32015">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_hlg" type="boolean" label="32016">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_av1" type="boolean" label="32017">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_hevc" type="boolean" label="32018">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_h264" type="boolean" label="32019">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_mpeg2" type="boolean" label="32020">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_vc1" type="boolean" label="32021">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_truehd" type="boolean" label="32022">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_dts" type="boolean" label="32023">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_dtshd" type="boolean" label="32024">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_eac3" type="boolean" label="32025">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_ac3" type="boolean" label="32026">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_aac" type="boolean" label="32027">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="allow_unknown" type="boolean" label="32028">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
+      </group>
+      <group id="5" label="32039">
+        <setting id="provider_priority" type="string" label="32040"><level>0</level><default>debridio,torrentio,comet</default><control type="edit" format="string" /></setting>
+        <setting id="preferred_languages" type="string" label="32041"><level>0</level><default>english</default><control type="edit" format="string" /></setting>
+        <setting id="allowed_languages" type="string" label="32042"><level>0</level><default /><constraints><allowempty>true</allowempty></constraints><control type="edit" format="string" /></setting>
+        <setting id="excluded_languages" type="string" label="32043"><level>0</level><default /><constraints><allowempty>true</allowempty></constraints><control type="edit" format="string" /></setting>
+      </group>
+      <group id="3" label="32029">
+        <setting id="detected_device" type="string" label="32030">
+          <level>0</level>
+          <default>Not detected yet</default>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string" />
+        </setting>
+      </group>
+      <group id="4" label="32036">
+        <setting id="action_link_torbox" type="action" label="32037">
+          <level>0</level>
+          <data>RunPlugin(plugin://$ID/?action=link_torbox)</data>
+          <control type="button" format="action">
+            <close>true</close>
+          </control>
+        </setting>
+        <setting id="action_detect_compatibility" type="action" label="32038">
+          <level>0</level>
+          <data>RunPlugin(plugin://$ID/?action=detect_compatibility)</data>
+          <control type="button" format="action">
+            <close>true</close>
+          </control>
+        </setting>
+      </group>
+    </category>
+    <category id="ams" label="32031">
+      <group id="1">
+        <setting id="ams_url" type="string" label="32032">
+          <level>0</level>
+          <default>http://hass.pve.home:8099</default>
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>32032</heading>
+          </control>
+        </setting>
+        <setting id="ams_profile" type="string" label="32033">
+          <level>0</level>
+          <default />
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>32033</heading>
+          </control>
+        </setting>
+        <setting id="ams_profile_id" type="string" label="32034">
+          <level>2</level>
+          <default />
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>32034</heading>
+          </control>
+        </setting>
+        <setting id="ams_device_key" type="string" label="32035">
+          <level>0</level>
+          <default />
+          <constraints>
+            <allowempty>true</allowempty>
+          </constraints>
+          <control type="edit" format="string">
+            <heading>32035</heading>
+          </control>
+        </setting>
+      </group>
+    </category>
+  </section>
+</settings>

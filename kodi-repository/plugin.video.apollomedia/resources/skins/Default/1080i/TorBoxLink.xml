@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+  <defaultcontrol always="true">200</defaultcontrol>
+  <coordinates>
+    <system>1</system>
+  </coordinates>
+  <controls>
+    <control type="image">
+      <left>0</left><top>0</top><width>1920</width><height>1080</height>
+      <texture colordiffuse="CC000000">white.png</texture>
+    </control>
+    <control type="image">
+      <left>650</left><top>170</top><width>620</width><height>620</height>
+      <texture>special://home/addons/plugin.video.apollomedia/resources/media/torbox-link-qr.png</texture>
+      <aspectratio>keep</aspectratio>
+    </control>
+    <control type="label" id="102">
+      <left>460</left><top>90</top><width>1000</width><height>60</height>
+      <font>font24_title</font><align>center</align>
+      <label>Scan the QR code or open tor.box/link</label>
+    </control>
+    <control type="label" id="101">
+      <left>460</left><top>805</top><width>1000</width><height>70</height>
+      <font>font30_title</font><align>center</align>
+      <label></label>
+    </control>
+    <control type="label" id="103">
+      <left>460</left><top>875</top><width>1000</width><height>50</height>
+      <font>font20</font><align>center</align>
+      <label>Waiting for TorBox authorization...</label>
+    </control>
+    <control type="button" id="200">
+      <left>810</left><top>950</top><width>300</width><height>60</height>
+      <label>Cancel</label>
+      <font>font20</font><align>center</align>
+    </control>
+  </controls>
+</window>
