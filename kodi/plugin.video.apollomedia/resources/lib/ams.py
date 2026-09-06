@@ -1,5 +1,6 @@
 import json
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 
@@ -197,6 +198,23 @@ def resolve_playback_identity(addon, media_id):
     if not media_id:
         return {}
     result = request(addon, f"media/{media_id}/playback-identity", timeout=15) or {}
+    return result if isinstance(result, dict) else {}
+
+
+def next_episode(addon, media_id):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        return {}
+    try:
+        result = request(
+            addon,
+            f"profiles/{profile_id(addon)}/media/{media_id}/next-episode",
+            timeout=20,
+        ) or {}
+    except urllib.error.HTTPError as exc:
+        if int(getattr(exc, "code", 0) or 0) == 404:
+            return {}
+        raise
     return result if isinstance(result, dict) else {}
 
 

@@ -762,7 +762,11 @@ def play_remote(p, choose=False):
             p.get("start_from_beginning") or ""
         ).strip().lower() in ("1", "true", "yes", "on")
 
-        if start_from_beginning:
+        upnext_playback = str(
+            p.get("upnext_playback") or ""
+        ).strip().lower() in ("1", "true", "yes", "on")
+
+        if start_from_beginning and not upnext_playback:
             selected = source_session.load() or {}
             index = int(selected.get("index") or 0)
             play_url = url("play_session_stream", index=index)
