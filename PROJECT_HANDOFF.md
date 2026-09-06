@@ -1,3 +1,105 @@
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-06
+## Checkpoint — AMS 0.2.27 Watchlist runtime validation
+
+- Checkpoint base HEAD before this handoff update: `5ef8aa2 — Release AMS 0.2.27`
+- Branch: `main`
+- Working tree before checkpoint update: **clean**
+- Stable/runtime-tested Kodi: **0.10.58**
+- Kodi stable tag: `stable/0.10.58`
+- AMS runtime: **0.2.27**
+- AMS functional commit: `c0edba5 — Add AMS profile watchlists`
+- AMS release commit: `5ef8aa2 — Release AMS 0.2.27`
+- AMS source test gate: **39/39 passed** against the exact 0.2.27 release source.
+
+### AMS 0.2.27 Watchlist architecture
+
+Apollo now owns a persistent, profile-scoped Watchlist.
+
+Binding semantics for this release:
+
+- Watchlist is profile state owned by AMS.
+- Watchlist currently accepts **movies and shows only**.
+- Episodes are deliberately rejected.
+- Seasons are not currently first-class watchlist media.
+- Continue Watching and Next Up remain responsible for episode-level viewing state.
+- The same media title may be watchlisted independently by different profiles.
+- Add and remove operations are idempotent.
+- List results use Apollo canonical media identity/metadata and expose current local availability.
+- External providers may supply discovery/catalog metadata but do not own Watchlist state.
+
+Runtime endpoints:
+
+- `GET /profiles/{profile_id}/watchlist`
+- `GET /profiles/{profile_id}/watchlist/{media_id}`
+- `PUT /profiles/{profile_id}/watchlist/{media_id}`
+- `DELETE /profiles/{profile_id}/watchlist/{media_id}`
+
+### Production runtime gate — PASSED
+
+Runtime deployment was verified through AMS `/health`:
+
+- service: `apollo-media-server`
+- version: `0.2.27`
+
+Production profile used for validation:
+
+- Casey profile UUID: `8cd92008-c2c8-4f9b-8367-d4c1cd9d5c7f`
+
+Production database/runtime validation proved:
+
+1. New Watchlist table initialized successfully on the existing production database.
+2. Empty Watchlist returned `[]`.
+3. Discovery materialized canonical 1999 **Fight Club**:
+   - media UUID: `113af011-18fb-44f1-9e5d-ab6d09116f26`
+   - canonical ID: `tmdb:550`
+   - IMDb: `tt0137523`
+   - runtime: `8340` seconds
+   - `available_locally: true`
+4. PUT added Fight Club to the profile Watchlist and returned canonical metadata, artwork, runtime, local availability, `watchlisted: true`, and `added_at`.
+5. Membership GET returned `watchlisted: true` with the same `added_at`.
+6. List GET returned the persistent Fight Club row with the same canonical metadata and local availability.
+7. Repeating the same PUT was idempotent: the original `added_at` remained unchanged, proving no duplicate/replacement row was created.
+8. DELETE returned HTTP `204`.
+9. Membership GET after deletion returned:
+   - `watchlisted: false`
+   - `added_at: null`
+10. Episode rejection was runtime-tested using Reacher S01E01 `Welcome to Margrave`:
+    - media UUID: `01c491da-b0c4-4e20-8477-e3f3b60eb47f`
+    - PUT to Watchlist was rejected with:
+      `Watchlist supports movie and show media only`
+
+### Current known-good baseline
+
+- Kodi `0.10.58` remains the stable/runtime-tested TV client baseline.
+- AMS `0.2.27` is runtime-validated with profile-owned Watchlist support.
+- Kodi persistent Next Up browsing and end-of-episode Up Next handoff remain runtime-proven.
+- `service.upnext` must exist/enabled on the Kodi client for the TV-side end-of-episode Up Next prompt to appear; the prior headless runtime test proved Apollo itself was preparing the successor correctly.
+
+### Immediate next product work
+
+Proceed to **Kodi Watchlist integration** unless the user changes priority:
+
+- Add Watchlist browsing to Kodi using the AMS profile Watchlist.
+- Add/remove Watchlist actions for movie/show title contexts.
+- Preserve the canonical title/navigation path; Watchlist is an entry point, not a parallel media identity.
+- Keep playback semantics unchanged.
+- Do not add episode Watchlist actions.
+- After Kodi source/unit gate, release through the normal Apollo Media Repository path and runtime-test before stable promotion.
+
+Retained roadmap after Watchlist includes:
+
+- remote-stream startup latency investigation
+- Apollo branded playback splash/loading state
+- Ensure Kodi Ready lifecycle
+- substantial Home Assistant card shared-client work
+- Recent Sessions / Resume Here
+- Apollo Companion
+- YouTube integration
+
+> **READ THIS FIRST.** This checkpoint supersedes older current-state/next-task statements later in this file. Historical investigation below is retained intentionally.
+
+---
+
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-05
 ## Checkpoint — Kodi 0.10.58 Next Up runtime validation
 
