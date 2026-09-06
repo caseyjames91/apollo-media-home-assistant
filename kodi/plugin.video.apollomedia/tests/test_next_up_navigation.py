@@ -39,7 +39,7 @@ class TestKodiNextUpContract(unittest.TestCase):
 
     def test_next_up_does_not_change_release_version(self):
         addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.57"', addon)
+        self.assertIn('version="0.10.58"', addon)
 
 
 if __name__ == "__main__":

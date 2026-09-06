@@ -47,7 +47,7 @@ class TestUpNextServiceContract(unittest.TestCase):
 
     def test_release_version_remains_01057_until_release(self):
         addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.57"', addon)
+        self.assertIn('version="0.10.58"', addon)
 
 
 if __name__ == "__main__":
