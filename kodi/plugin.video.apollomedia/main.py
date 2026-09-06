@@ -46,30 +46,71 @@ def notify(text, level=xbmcgui.NOTIFICATION_INFO):
 
 
 def art(row):
+    """Map canonical Apollo artwork into standard Kodi artwork roles."""
     result = {}
+    media_type = str(row.get("media_type") or "").strip().lower()
+
     poster = str(row.get("poster_url") or row.get("poster") or "")
     fanart = str(row.get("backdrop_url") or row.get("fanart") or "")
+    landscape = str(
+        row.get("landscape_url")
+        or row.get("landscape")
+        or row.get("backdrop_url")
+        or row.get("fanart")
+        or ""
+    )
+    thumb = str(row.get("thumb_url") or row.get("thumb") or "")
+
     if poster:
-        result.update({"poster": poster, "thumb": poster})
+        result["poster"] = poster
     if fanart:
         result["fanart"] = fanart
+    if landscape:
+        result["landscape"] = landscape
+
+    if thumb:
+        result["thumb"] = thumb
+    elif media_type == "episode" and landscape:
+        # Episode rows are normally rendered as landscape/still cards.
+        result["thumb"] = landscape
+    elif poster:
+        result["thumb"] = poster
+
     return result
 
 
 def apply_common(item, row, title, imdb_id=""):
     tag = item.getVideoInfoTag()
     tag.setTitle(str(title or "Unknown"))
+
     if imdb_id:
         tag.setUniqueID(str(imdb_id), "imdb")
+
+    tmdb_id = str(row.get("tmdb_id") or "").strip()
+    if tmdb_id:
+        tag.setUniqueID(tmdb_id, "tmdb")
+
+    media_type = str(row.get("media_type") or "").strip().lower()
+    kodi_media_type = {
+        "movie": "movie",
+        "show": "tvshow",
+        "tvshow": "tvshow",
+        "episode": "episode",
+    }.get(media_type)
+    if kodi_media_type:
+        tag.setMediaType(kodi_media_type)
+
     plot = str(row.get("overview") or row.get("plot") or "")
     if plot:
         tag.setPlot(plot)
+
     year = row.get("year")
     if year:
         try:
             tag.setYear(int(str(year)[:4]))
         except Exception:
             pass
+
     artwork = art(row)
     if artwork:
         item.setArt(artwork)
