@@ -75,11 +75,13 @@ def apply_common(item, row, title, imdb_id=""):
         item.setArt(artwork)
 
 
-def folder(label, target, row=None, imdb_id=""):
+def folder(label, target, row=None, imdb_id="", context=None):
     item = xbmcgui.ListItem(label=str(label))
     item.setProperty("IsPlayable", "false")
     if row:
         apply_common(item, row, label, imdb_id)
+    if context:
+        item.addContextMenuItems(context, replaceItems=True)
     xbmcplugin.addDirectoryItem(HANDLE, target, item, True)
 
 
@@ -167,6 +169,7 @@ def home():
     folder("Library Shows", url("library_shows"))
     folder("Continue Watching", url("continue"))
     folder("Next Up", url("next_up"))
+    folder("Watchlist", url("watchlist"))
     folder("Popular Movies", url("discovery", mode="popular", media_type="movie"))
     folder("Popular Shows", url("discovery", mode="popular", media_type="show"))
     folder("Trending Movies", url("discovery", mode="trending", media_type="movie"))
@@ -231,7 +234,13 @@ def library_shows():
                 if tmdb
                 else url("show", imdb=imdb, title=title)
             )
-            folder(title, target, row, imdb)
+            folder(
+                title,
+                target,
+                row,
+                imdb,
+                context=_watchlist_context(row, "show"),
+            )
     except Exception as exc:
         notify(f"AMS show library failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("tvshows")
@@ -342,6 +351,27 @@ def next_up():
     end("episodes")
 
 
+def watchlist():
+    try:
+        rows = ams.watchlist(ADDON)
+        for row in rows:
+            media_type = str(row.get("media_type") or "").strip().lower()
+            title = str(row.get("title") or "Unknown")
+            if media_type == "movie":
+                playable_media(row, "movie")
+            elif media_type == "show":
+                folder(
+                    title,
+                    _canonical_detail_target(row),
+                    row,
+                    str(row.get("imdb_id") or ""),
+                    context=_watchlist_context(row, "show", watchlisted=True),
+                )
+    except Exception as exc:
+        notify(f"AMS Watchlist failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    end("movies")
+
+
 def _canonical_detail_target(row):
     media_type = str(row.get("media_type") or "").lower()
     if media_type == "movie":
@@ -369,7 +399,13 @@ def discovery_list(mode, media_type):
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
-                folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
+                folder(
+                    title,
+                    _canonical_detail_target(row),
+                    row,
+                    str(row.get("imdb_id") or ""),
+                    context=_watchlist_context(row, "show"),
+                )
     except Exception as exc:
         notify(f"AMS discovery failed: {exc}",xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type=="movie" else "tvshows")
@@ -389,7 +425,13 @@ def search(media_type):
             if media_type=="movie":
                 playable_media(row, "movie")
             else:
-                folder(title,_canonical_detail_target(row),row,str(row.get("imdb_id") or ""))
+                folder(
+                    title,
+                    _canonical_detail_target(row),
+                    row,
+                    str(row.get("imdb_id") or ""),
+                    context=_watchlist_context(row, "show"),
+                )
     except Exception as exc:
         notify(f"AMS search failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies" if media_type == "movie" else "tvshows")
@@ -490,6 +532,37 @@ def _remote_params(row, media_type, season=0, episode=0, title="", show_title=""
     )
 
 
+def _watchlist_context(row, media_type, watchlisted=None):
+    normalized = str(media_type or "").strip().lower()
+    if normalized not in ("movie", "show"):
+        return []
+
+    media_id = str(row.get("media_id") or row.get("id") or "").strip()
+    if not media_id:
+        return []
+
+    if watchlisted is None:
+        try:
+            watchlisted = ams.watchlist_contains(ADDON, media_id)
+        except Exception as exc:
+            xbmc.log(
+                f"[Apollo] Watchlist membership rendering failed: {exc}",
+                xbmc.LOGWARNING,
+            )
+            return []
+
+    label = (
+        "Apollo: Remove from Watchlist"
+        if watchlisted
+        else "Apollo: Add to Watchlist"
+    )
+    value = "0" if watchlisted else "1"
+    return [(
+        label,
+        f"RunPlugin({url('set_watchlist', media_id=media_id, watchlisted=value)})",
+    )]
+
+
 def _play_context(row, media_type, season=0, episode=0, title="", show_title=""):
     remote = _remote_params(
         row,
@@ -508,6 +581,7 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
     ]
     media_id = str(row.get("media_id") or row.get("id") or "")
     if media_id:
+        actions.extend(_watchlist_context(row, media_type))
         actions.extend([
             (
                 "Apollo: Mark watched",
@@ -903,6 +977,19 @@ def set_watched(p):
         notify(f"Watched state update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
 
 
+def set_watchlist(p):
+    media_id = str(p.get("media_id") or "").strip()
+    watchlisted = str(p.get("watchlisted") or "").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    try:
+        ams.set_watchlist(ADDON, media_id, watchlisted)
+        notify("Added to Watchlist" if watchlisted else "Removed from Watchlist")
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        notify(f"Watchlist update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
 def detect_device_compatibility():
     description, values = detect_compatibility(ADDON)
     labels = []
@@ -1016,6 +1103,8 @@ def dispatch():
         continue_watching()
     elif action == "next_up":
         next_up()
+    elif action == "watchlist":
+        watchlist()
     elif action == "discovery":
         discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie")
     elif action == "search":
@@ -1038,6 +1127,8 @@ def dispatch():
         flag_current()
     elif action == "set_watched":
         set_watched(p)
+    elif action == "set_watchlist":
+        set_watchlist(p)
     elif action == "detect_compatibility":
         detect_device_compatibility()
     elif action == "link_torbox":

@@ -223,6 +223,47 @@ def continue_watching(addon):
     return rows if isinstance(rows, list) else []
 
 
+_watchlist_cache = {}
+
+
+def watchlist(addon):
+    pid = profile_id(addon)
+    cached = _watchlist_cache.get(pid)
+    if cached is not None:
+        return cached
+    rows = request(addon, f"profiles/{pid}/watchlist", timeout=10) or []
+    rows = rows if isinstance(rows, list) else []
+    _watchlist_cache[pid] = rows
+    return rows
+
+
+def watchlist_contains(addon, media_id):
+    target = str(media_id or "").strip()
+    if not target:
+        return False
+    return any(
+        str(row.get("media_id") or "").strip() == target
+        for row in watchlist(addon)
+    )
+
+
+def set_watchlist(addon, media_id, watchlisted):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        raise RuntimeError("Media ID is required to change Watchlist state")
+
+    pid = profile_id(addon)
+    path = f"profiles/{pid}/watchlist/{media_id}"
+    if watchlisted:
+        result = request(addon, path, method="PUT", timeout=5) or {}
+    else:
+        request(addon, path, method="DELETE", timeout=5)
+        result = {}
+
+    _watchlist_cache.pop(pid, None)
+    return result
+
+
 def next_up(addon):
     rows = request(addon, f"profiles/{profile_id(addon)}/next-up", timeout=15) or []
     return rows if isinstance(rows, list) else []
