@@ -1,100 +1,140 @@
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-06
-## Checkpoint — AMS 0.2.27 Watchlist runtime validation
-
-- Checkpoint base HEAD before this handoff update: `5ef8aa2 — Release AMS 0.2.27`
+## Checkpoint — Kodi 0.10.60 Watchlist + pagination runtime validation
+- Checkpoint base HEAD before this handoff update: `04c5320 — Release Apollo Media 0.10.60`
 - Branch: `main`
 - Working tree before checkpoint update: **clean**
-- Stable/runtime-tested Kodi: **0.10.58**
-- Kodi stable tag: `stable/0.10.58`
+- Stable/runtime-tested Kodi: **0.10.60**
+- Kodi release commit: `04c5320 — Release Apollo Media 0.10.60`
+- Kodi Watchlist functional commit: `62780fc — Add Kodi profile Watchlist integration`
+- Kodi pagination restoration commit: `8513e1a — Restore Kodi discovery pagination`
 - AMS runtime: **0.2.27**
-- AMS functional commit: `c0edba5 — Add AMS profile watchlists`
+- AMS Watchlist functional commit: `c0edba5 — Add AMS profile watchlists`
 - AMS release commit: `5ef8aa2 — Release AMS 0.2.27`
-- AMS source test gate: **39/39 passed** against the exact 0.2.27 release source.
+- Kodi source test gate for 0.10.60: **86/86 passed**
+- AMS source test gate for 0.2.27: **39/39 passed**
 
-### AMS 0.2.27 Watchlist architecture
+### Kodi 0.10.60 runtime gate — PASSED
+Repository-installed Kodi 0.10.60 was validated through the normal Apollo Media Repository update path.
 
-Apollo now owns a persistent, profile-scoped Watchlist.
+Runtime validation proved:
+1. Profile Watchlist is exposed in Kodi.
+2. Movie Add to Watchlist works.
+3. Movie Remove from Watchlist works and refreshes correctly.
+4. Show Add to Watchlist works.
+5. Selecting a watchlisted show enters the same canonical show/season navigation used elsewhere.
+6. Episodes do not expose Watchlist actions.
+7. Discovery pagination is restored.
+8. `More Results` loads the next page successfully.
+9. Search pagination preserves the existing query and loads additional results without prompting for the query again.
+10. Playback lifecycle behavior was not changed by the pagination restoration.
 
-Binding semantics for this release:
+### Canonical title/navigation rule
+Every Apollo title has one canonical media identity/navigation path.
 
-- Watchlist is profile state owned by AMS.
-- Watchlist currently accepts **movies and shows only**.
+Binding semantics:
+- Library, Search, Popular, Trending, Watchlist, Continue Watching, recommendations, and future feeds are entry points only.
+- Selecting the same title from different entry points must resolve through the same canonical Apollo title identity/path rather than creating feed-specific copies.
+- Watchlist membership references the canonical title; adding/removing Watchlist membership does not create or replace media identity.
+- Preserve the canonical title/navigation path; Watchlist is an entry point, not a parallel media identity.
+- Continue Watching and Next Up remain profile-state views over canonical media rather than alternate media identities.
+
+### Watchlist architecture
+Apollo owns persistent, profile-scoped Watchlist state.
+
+Current binding semantics:
+- Movies and shows only.
 - Episodes are deliberately rejected.
-- Seasons are not currently first-class watchlist media.
-- Continue Watching and Next Up remain responsible for episode-level viewing state.
-- The same media title may be watchlisted independently by different profiles.
-- Add and remove operations are idempotent.
-- List results use Apollo canonical media identity/metadata and expose current local availability.
-- External providers may supply discovery/catalog metadata but do not own Watchlist state.
+- Seasons are not currently first-class Watchlist media.
+- Per-profile membership.
+- Add/remove are idempotent.
+- AMS returns canonical metadata/artwork and local availability.
+- Kodi consumes AMS Watchlist state rather than owning separate Watchlist state.
+- External discovery providers do not own Watchlist membership.
 
-Runtime endpoints:
-
+Runtime AMS endpoints:
 - `GET /profiles/{profile_id}/watchlist`
 - `GET /profiles/{profile_id}/watchlist/{media_id}`
 - `PUT /profiles/{profile_id}/watchlist/{media_id}`
 - `DELETE /profiles/{profile_id}/watchlist/{media_id}`
 
-### Production runtime gate — PASSED
+### Pagination regression and fix
+A rollback had removed previously-working pagination from Kodi discovery/search.
 
-Runtime deployment was verified through AMS `/health`:
+Known-good historical behavior was restored:
+- Popular/Trending discovery accepts and forwards `page`.
+- Search accepts and forwards both `query` and `page`.
+- `More Results` advances to the next provider page.
+- Search `More Results` preserves the original query.
+- The provider/API page size behavior remains `len(rows) >= 20` before showing `More Results`.
+- Library Movies/Shows were not changed; recovered historical pagination applied to discovery/search, not local-library full-list rendering.
 
-- service: `apollo-media-server`
-- version: `0.2.27`
-
-Production profile used for validation:
-
-- Casey profile UUID: `8cd92008-c2c8-4f9b-8367-d4c1cd9d5c7f`
-
-Production database/runtime validation proved:
-
-1. New Watchlist table initialized successfully on the existing production database.
-2. Empty Watchlist returned `[]`.
-3. Discovery materialized canonical 1999 **Fight Club**:
-   - media UUID: `113af011-18fb-44f1-9e5d-ab6d09116f26`
-   - canonical ID: `tmdb:550`
-   - IMDb: `tt0137523`
-   - runtime: `8340` seconds
-   - `available_locally: true`
-4. PUT added Fight Club to the profile Watchlist and returned canonical metadata, artwork, runtime, local availability, `watchlisted: true`, and `added_at`.
-5. Membership GET returned `watchlisted: true` with the same `added_at`.
-6. List GET returned the persistent Fight Club row with the same canonical metadata and local availability.
-7. Repeating the same PUT was idempotent: the original `added_at` remained unchanged, proving no duplicate/replacement row was created.
-8. DELETE returned HTTP `204`.
-9. Membership GET after deletion returned:
-   - `watchlisted: false`
-   - `added_at: null`
-10. Episode rejection was runtime-tested using Reacher S01E01 `Welcome to Margrave`:
-    - media UUID: `01c491da-b0c4-4e20-8477-e3f3b60eb47f`
-    - PUT to Watchlist was rejected with:
-      `Watchlist supports movie and show media only`
+The 0.10.60 source gate added regression coverage for:
+- AMS discovery page parameter
+- discovery pagination routing
+- search pagination with query preservation
 
 ### Current known-good baseline
+- Kodi **0.10.60** is the stable/runtime-tested TV client baseline.
+- AMS **0.2.27** is the runtime-tested server baseline.
+- Kodi Watchlist integration is runtime-proven.
+- Discovery/Search pagination is runtime-proven.
+- Persistent Next Up browsing remains runtime-proven.
+- End-of-episode Up Next remains runtime-proven when Kodi `service.upnext` is installed/enabled.
+- The 0.10.59 repository metadata drift that omitted `service.upnext` from generated `addons.xml` was corrected by the release tooling; 0.10.60 repository metadata is rebuilt from authoritative addon XML and preserves the dependency.
+- Do not reopen the solved resume/bad-stream parent lifecycle chain without new regression evidence.
 
-- Kodi `0.10.58` remains the stable/runtime-tested TV client baseline.
-- AMS `0.2.27` is runtime-validated with profile-owned Watchlist support.
-- Kodi persistent Next Up browsing and end-of-episode Up Next handoff remain runtime-proven.
-- `service.upnext` must exist/enabled on the Kodi client for the TV-side end-of-episode Up Next prompt to appear; the prior headless runtime test proved Apollo itself was preparing the successor correctly.
+### Binding playback architecture
+- Rooms own playback devices; profiles own viewing state.
+- `Media.runtime_seconds` is canonical expected-runtime authority.
+- `Progress.duration_seconds` is profile viewing state only.
+- Kodi owns actual playback and reports validated observations to AMS.
+- Initiating client owns playback decisions.
+- Kodi-origin playback may use Kodi native Resume/Beginning.
+- Card-origin playback should send explicit intent and must not unexpectedly put a decision dialog on the TV.
+- Bad-stream retries preserve the original intent silently.
+- Rejected playback must not mutate legitimate profile state.
+- Do not implement resume as visible start-at-zero then seek.
 
 ### Immediate next product work
+Current retained priorities:
+1. **Investigate remote-stream startup latency regression**
+   - measure AMS/provider/source resolution
+   - Kodi parent-plugin resolution
+   - source-session handling
+   - resume metadata setup
+   - remote duration validation
+   - actual Kodi player open
+   - do not assume the resume fix is the cause until measured
 
-Proceed to **Kodi Watchlist integration** unless the user changes priority:
+2. **Apollo branded playback splash/loading state**
+   - backdrop immediately while resolving/opening
+   - transparent logo when available, title fallback
+   - continuous through bad-stream retries
+   - dismiss on `onAVStarted()` or terminal failure
+   - eventually compose with Ensure Kodi Ready
 
-- Add Watchlist browsing to Kodi using the AMS profile Watchlist.
-- Add/remove Watchlist actions for movie/show title contexts.
-- Preserve the canonical title/navigation path; Watchlist is an entry point, not a parallel media identity.
-- Keep playback semantics unchanged.
-- Do not add episode Watchlist actions.
-- After Kodi source/unit gate, release through the normal Apollo Media Repository path and runtime-test before stable promotion.
+3. **Substantial Home Assistant card shared-client work**
+   - card and Kodi remain separate full clients over shared AMS state
+   - normal card browsing must not move the TV UI
+   - `Show on TV` explicitly transfers card navigation context to Kodi
+   - `Resume on Card` transfers Kodi navigation context back to the card
 
-Retained roadmap after Watchlist includes:
-
-- remote-stream startup latency investigation
-- Apollo branded playback splash/loading state
+Retained roadmap:
 - Ensure Kodi Ready lifecycle
-- substantial Home Assistant card shared-client work
 - Recent Sessions / Resume Here
 - Apollo Companion
 - YouTube integration
+
+### Recovery procedure
+On a new conversation:
+1. Read this checkpoint first.
+2. Run `git status --short`.
+3. Inspect `HEAD` and `origin/main`.
+4. Compare Git history against this checkpoint.
+5. Verify runtime versions when relevant.
+6. Update this file after meaningful transitions.
+
+Desired recovery prompt: **Resume Apollo.**
 
 > **READ THIS FIRST.** This checkpoint supersedes older current-state/next-task statements later in this file. Historical investigation below is retained intentionally.
 
