@@ -753,3 +753,159 @@ Return to the Kodi canonical ListItem/resume synchronization work. The unrelease
 - `kodi/plugin.video.apollomedia/tests/test_resume_retry_intent.py`
 
 There is still no Kodi 0.10.54 release. Kodi 0.10.47 remains the last stable Kodi release.
+
+## Runtime checkpoint — AMS 0.2.26 Next Up validated (2026-09-05)
+
+### Current repository / runtime state
+- Branch: `main`
+- Current checkpoint HEAD before this handoff update: `564a769`
+- Commit: `564a769` — Add AMS Next Up support
+- Kodi stable/runtime baseline remains `0.10.56`.
+- AMS production runtime is `0.2.26`.
+- Home Assistant Supervisor add-on was updated from GitHub after the 0.2.26 commit was pushed.
+- Direct AMS API base: `http://hass.pve.home:8099`
+- `GET /health` returned:
+  `{"status":"ok","service":"apollo-media-server","version":"0.2.26"}`
+
+### Pre-deployment test gate
+The exact AMS 0.2.26 release source passed the full disposable-container test suite:
+
+`30 passed`
+
+This includes real SQLAlchemy behavior tests for:
+- same-season next-episode advancement
+- cross-season advancement
+- skipping already watched successors
+- preserving target partial progress
+- Continue Watching precedence
+- future-episode exclusion
+
+### Next Up ownership
+Next Up is AMS/profile-owned.
+
+AMS determines the canonical next episode using:
+- canonical Apollo media identity
+- profile-specific watched/progress state
+- TMDB-backed episode ordering/materialization
+
+Kodi and the Home Assistant card are consumers of that same AMS result.
+
+Persistent Continue Watching and Next Up remain separate AMS concepts:
+- unfinished episode -> Continue Watching owns the show
+- completed/watched episode -> Next Up may advance the show
+- future combined profile presentation may place both concepts in one row
+- the same show must not appear simultaneously as both in-progress and next-up
+
+### New AMS 0.2.26 endpoints
+- `GET /profiles/{profile_id}/next-up`
+- `GET /profiles/{profile_id}/media/{media_id}/next-episode`
+
+### Production runtime validation
+
+#### Persistent profile Next Up
+Production `GET /profiles/{profile_id}/next-up` returned:
+
+American Dad! — S01E02 — `Threat Levels`
+
+Key state:
+- media UUID: `63bc3555-eb68-44da-84d9-98eada69b277`
+- canonical ID: `tmdb:1433:s1e2`
+- season/episode: `1x02`
+- runtime: `22` minutes
+- expected duration: `1320` seconds
+- position: `0`
+- watched: `false`
+- state: `next_up`
+
+The preceding American Dad! S01E01 profile record was confirmed as:
+- canonical ID: `tmdb:1433:s1e1`
+- position: `1288.251`
+- duration: `1304.192`
+- watched: `true`
+
+Therefore American Dad! was correctly absent from Continue Watching and correctly advanced to S01E02 in Next Up.
+
+#### Direct next-episode resolver
+Using American Dad! S01E02 as the source, production:
+
+`GET /profiles/{profile_id}/media/63bc3555-eb68-44da-84d9-98eada69b277/next-episode`
+
+correctly returned:
+
+American Dad! — S01E03 — `Stan Knows Best`
+
+Key state:
+- media UUID: `0ccfae0e-531c-45d2-bd0c-4ee10b1d0d01`
+- canonical ID: `tmdb:1433:s1e3`
+- runtime: `22` minutes
+- expected duration: `1320` seconds
+- position: `0`
+- watched: `false`
+
+#### Cross-season transition
+A production direct-successor test using the Reacher season 1 finale correctly crossed the season boundary and returned:
+
+Reacher — S02E01 — `ATM`
+
+Key state:
+- media UUID: `b5b707b7-c404-4212-b82b-e1a543a0da3d`
+- canonical ID: `tmdb:108978:s2e1`
+- runtime: `56` minutes
+- expected duration: `3360` seconds
+- position: `0`
+- watched: `false`
+
+This confirms production Next Up does not stop at season boundaries.
+
+### Continue Watching observations
+Production Continue Watching correctly excluded American Dad! because S01E01 is watched.
+
+The existing production database also exposes historical canonicalization/data debt that is not part of the 0.2.26 Next Up regression scope:
+- Ted Lasso can appear more than once in raw Continue Watching because multiple unfinished episodes from the same series exist.
+- Fight Club exists under both IMDb-style and TMDB-style canonical identities.
+- One historical Shameless row contains malformed canonical ID:
+  `Player.Property(ApolloCanonicalId)`
+- Several older episode rows use legacy show/IMDb-style canonical identities rather than the newer `tmdb:{series}:s{season}e{episode}` form.
+
+Do not migrate or repair these historical rows as part of the 0.2.26 Next Up release unless they are proven to break current behavior.
+
+For future combined Continue Watching + Next Up presentation:
+- collapse to one item per show
+- unfinished/in-progress episode wins
+- otherwise use canonical Next Up
+- never show both states for the same show
+
+### Runtime gate result
+AMS 0.2.26 Next Up is runtime validated.
+
+Validated production behavior:
+- health/version
+- persistent profile Next Up
+- watched-to-next-unwatched advancement
+- Continue Watching precedence
+- direct successor resolution
+- cross-season transition
+- canonical metadata/runtime materialization
+- production database compatibility
+
+### Next work
+Core Apollo profile/viewing functionality sequence is now:
+
+1. Next Up — COMPLETE and runtime validated in AMS 0.2.26
+2. AMS-owned Watchlist — NEXT
+3. discovery/list-provider support
+4. substantial Home Assistant card work
+
+Trakt is no longer part of the architecture.
+
+AMS owns:
+- watchlists
+- personalized viewing state
+- Continue Watching
+- Next Up
+- future profile-scoped collections
+
+External providers may supply discovery/catalog/list data, but they do not own Apollo profile state.
+
+### Exact next action
+Begin AMS-owned Watchlist design and implementation from this checkpoint.
