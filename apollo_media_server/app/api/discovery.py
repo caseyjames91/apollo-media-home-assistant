@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.integration import Integration
 from app.models.local_availability import LocalAvailability
 from app.models.media import Media
+from app.services.episodes import materialize_season
 from app.services.tmdb import DEFAULT_BASE_URL, IMAGE_BASE_URL, TMDB_KIND, _headers
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
@@ -241,67 +242,50 @@ async def show_season(tmdb_id: str, season_number: int, db: Session = Depends(ge
         (int(value) for value in (show_raw.get("episode_run_time") or []) if int(value or 0) > 0),
         0,
     )
-    episodes=[]
-    for row in raw.get("episodes") or []:
-        number=int(row.get("episode_number") or 0)
-        if number <= 0: continue
-        canonical_id=f"tmdb:{tmdb_id}:s{int(season_number)}e{number}"
-        episode_runtime = int(row.get("runtime") or show_runtime or 0)
-        episode_row={
-            "media_type":"episode", "canonical_id":canonical_id,
-            "imdb_id":show.get("imdb_id"), "tmdb_id":str(row.get("id") or ""),
-            "series_tmdb_id":str(tmdb_id), "series_title":show.get("title"),
-            "title":str(row.get("name") or f"Episode {number}"),
-            "season":int(season_number), "episode":number,
-            "overview":row.get("overview"),
-            "poster_url":_image(row.get("still_path")) or show.get("poster_url"),
-            "backdrop_url":show.get("backdrop_url"), "air_date":row.get("air_date"),
-            "runtime":episode_runtime,
-            "expected_duration_seconds":episode_runtime*60,
-            "available_locally":False,
-        }
-        canonical=db.scalar(select(Media).where(
-            Media.media_type=="episode", Media.canonical_id==canonical_id,
-            Media.season==int(season_number), Media.episode==number
-        ))
-        if canonical is None:
-            canonical=Media(
-                media_type="episode", canonical_id=canonical_id,
-                imdb_id=episode_row["imdb_id"], tmdb_id=episode_row["tmdb_id"],
-                title=episode_row["title"], series_title=episode_row["series_title"],
-                overview=episode_row["overview"], poster_url=episode_row["poster_url"],
-                backdrop_url=episode_row["backdrop_url"],
-                season=int(season_number), episode=number,
-            )
-            db.add(canonical); db.flush()
-        else:
-            canonical.imdb_id=episode_row["imdb_id"] or canonical.imdb_id
-            canonical.tmdb_id=episode_row["tmdb_id"] or canonical.tmdb_id
-            canonical.title=episode_row["title"] or canonical.title
-            canonical.series_title=episode_row["series_title"] or canonical.series_title
-            canonical.overview=episode_row["overview"] or canonical.overview
-            canonical.poster_url=episode_row["poster_url"] or canonical.poster_url
-            canonical.backdrop_url=episode_row["backdrop_url"] or canonical.backdrop_url
-        canonical.runtime_seconds = episode_runtime * 60 if episode_runtime > 0 else canonical.runtime_seconds
-        episode_row["media_id"]=str(canonical.id)
-        episodes.append(episode_row)
+    episodes = materialize_season(
+        db,
+        series_tmdb_id=str(tmdb_id),
+        show_imdb_id=show.get("imdb_id"),
+        series_title=str(show.get("title") or ""),
+        show_poster_url=show.get("poster_url"),
+        show_backdrop_url=show.get("backdrop_url"),
+        season_number=int(season_number),
+        season_raw=raw,
+        show_runtime_minutes=show_runtime,
+    )
+
+    # Preserve the existing local-library reconciliation contract. Apollo may
+    # have provider/imported episode rows carrying the same series IMDb ID and
+    # episode coordinates even when the canonical TMDB episode row is distinct.
     if show.get("imdb_id"):
-        local_rows=db.scalars(select(Media).where(
-            Media.media_type=="episode", Media.imdb_id==show.get("imdb_id"),
-            Media.season==int(season_number)
-        )).all()
-        local_by_episode={int(row.episode or 0):row for row in local_rows}
+        local_rows = db.scalars(
+            select(Media).where(
+                Media.media_type == "episode",
+                Media.imdb_id == show.get("imdb_id"),
+                Media.season == int(season_number),
+            )
+        ).all()
+        local_by_episode = {
+            int(row.episode or 0): row
+            for row in local_rows
+        }
         for episode in episodes:
-            local=local_by_episode.get(int(episode["episode"]))
-            if local is None: continue
-            episode.update({
-                "imdb_id":local.imdb_id or show.get("imdb_id"),
-                "title":local.title or episode["title"],
-                "overview":local.overview or episode["overview"],
-                "poster_url":local.poster_url or episode["poster_url"],
-                "backdrop_url":local.backdrop_url or episode["backdrop_url"],
-                "available_locally":_local(db, local),
-            })
+            local = local_by_episode.get(int(episode["episode"]))
+            if local is None:
+                continue
+            episode.update(
+                {
+                    "imdb_id": local.imdb_id or show.get("imdb_id"),
+                    "title": local.title or episode["title"],
+                    "overview": local.overview or episode["overview"],
+                    "poster_url": local.poster_url or episode["poster_url"],
+                    "backdrop_url": (
+                        local.backdrop_url or episode["backdrop_url"]
+                    ),
+                    "available_locally": _local(db, local),
+                }
+            )
+
     db.commit()
     return {"show":show, "season":int(season_number),
             "title":str(raw.get("name") or f"Season {int(season_number)}"),

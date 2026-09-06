@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import devices, discovery, health, integrations, local, media, profiles, progress, sessions, sync
+from app.api import devices, discovery, health, integrations, local, media, next_up, profiles, progress, sessions, sync
 from app.core.config import settings
 from app.db.session import init_db
 
@@ -25,6 +25,7 @@ app.include_router(devices.router)
 app.include_router(media.router)
 app.include_router(discovery.router)
 app.include_router(progress.router)
+app.include_router(next_up.router)
 app.include_router(integrations.router)
 app.include_router(sync.router)
 app.include_router(local.router)
