@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <addons>
-    <addon id="plugin.video.apollomedia" name="Apollo Media" version="0.10.60" provider-name="Apollo Media">
+    <addon id="plugin.video.apollomedia" name="Apollo Media" version="0.10.61" provider-name="Apollo Media">
         <requires>
             <import addon="xbmc.python" version="3.0.0" />
             <import addon="service.upnext" version="1.1.9" />

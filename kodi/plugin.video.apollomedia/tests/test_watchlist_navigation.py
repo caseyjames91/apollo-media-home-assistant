@@ -50,7 +50,7 @@ class TestKodiWatchlistContract(unittest.TestCase):
 
     def test_release_version_stays_01058_until_release(self):
         addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.60"', addon)
+        self.assertIn('version="0.10.61"', addon)
 
 
 if __name__ == "__main__":
