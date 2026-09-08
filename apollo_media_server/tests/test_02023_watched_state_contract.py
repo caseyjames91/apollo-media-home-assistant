@@ -21,6 +21,11 @@ def test_watched_mutation_sets_authoritative_state():
     assert "progress.updated_at = now" in PROGRESS_API
 
 
+def test_mark_watched_clears_resume_position():
+    assert "if payload.watched:" in PROGRESS_API
+    assert "progress.position_seconds = 0.0" in PROGRESS_API
+
+
 def test_watched_mutation_can_create_profile_progress_row():
     assert "if progress is None:" in PROGRESS_API
     assert "progress = Progress(" in PROGRESS_API

@@ -208,6 +208,11 @@ def set_watched(
     now = datetime.now(timezone.utc)
     progress.watched = bool(payload.watched)
     progress.watched_at = now if payload.watched else None
+    # A manually watched title is no longer resumable/in-progress.
+    # Preserve the observed duration, but clear the resume position so every
+    # Apollo client renders watched state without an in-progress indicator.
+    if payload.watched:
+        progress.position_seconds = 0.0
     progress.updated_at = now
 
     db.commit()
