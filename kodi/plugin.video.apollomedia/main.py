@@ -157,6 +157,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     # cannot leak watched/resume metadata from another directory rendering.
     tag.setPlaycount(0)
     tag.setResumePoint(0.0, 0.0)
+    watched = False
 
     try:
         if progress is None:
@@ -185,6 +186,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             episode=episode,
             title=title,
             show_title=show_title,
+            watched=watched,
         ),
         replaceItems=True,
     )
@@ -634,7 +636,15 @@ def _source_session_matches_item(session, row, media_type, season=0, episode=0):
 
     return session_episode == 0
 
-def _play_context(row, media_type, season=0, episode=0, title="", show_title=""):
+def _play_context(
+    row,
+    media_type,
+    season=0,
+    episode=0,
+    title="",
+    show_title="",
+    watched=False,
+):
     remote = _remote_params(
         row,
         media_type,
@@ -653,16 +663,16 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
     media_id = str(row.get("media_id") or row.get("id") or "")
     if media_id:
         actions.extend(_watchlist_context(row, media_type))
-        actions.extend([
-            (
-                "Apollo: Mark watched",
-                f"RunPlugin({url('set_watched', media_id=media_id, watched='1')})",
-            ),
-            (
+        if watched:
+            actions.append((
                 "Apollo: Mark unwatched",
                 f"RunPlugin({url('set_watched', media_id=media_id, watched='0')})",
-            ),
-        ])
+            ))
+        else:
+            actions.append((
+                "Apollo: Mark watched",
+                f"RunPlugin({url('set_watched', media_id=media_id, watched='1')})",
+            ))
     if row.get("available_locally") and media_id:
         actions.insert(
             0,
