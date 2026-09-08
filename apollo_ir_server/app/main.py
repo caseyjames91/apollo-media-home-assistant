@@ -45,6 +45,12 @@ class LearnRequest(BaseModel):
     timeout: int = Field(default=30, ge=5, le=120)
 
 
+class SendRequest(BaseModel):
+    remote_entity_id: str
+    device: str = Field(min_length=1, max_length=128)
+    command: str = Field(min_length=1, max_length=128)
+
+
 async def run_learning_job(job_id: str, req: LearnRequest) -> None:
     job = jobs[job_id]
     job["state"] = "waiting_for_signal"
@@ -184,3 +190,40 @@ async def get_job(
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Learning job not found")
     return jobs[job_id]
+
+
+@app.post("/api/send")
+async def send_command(
+    req: SendRequest,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+
+    if not req.remote_entity_id.startswith("remote."):
+        raise HTTPException(status_code=400, detail="remote_entity_id must be remote.*")
+
+    payload = {
+        "entity_id": req.remote_entity_id,
+        "device": req.device,
+        "command": req.command,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{HA_URL}/api/services/remote/send_command",
+            headers=ha_headers(),
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Home Assistant send failed: {response.status_code} {response.text}",
+        )
+
+    return {
+        "ok": True,
+        "remote_entity_id": req.remote_entity_id,
+        "device": req.device,
+        "command": req.command,
+    }
