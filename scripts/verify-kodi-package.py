@@ -62,8 +62,8 @@ required = [
     'folder("Continue Watching", url("continue"))',
     'def playable_media(',
     '"play_remote",',
-    '"Play Locally"',
-    '"Pick Stream Manually"',
+    '"Apollo: Play Locally"',
+    '"Apollo: Pick Stream Manually"',
 ]
 absent = [token for token in required if token not in main_text]
 if absent:
