@@ -1,3 +1,108 @@
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-08
+## Checkpoint — Kodi 0.10.61 presentation validation + Estuary reference-client audit
+
+- Branch: `main`
+- Current repository HEAD before checkpoint: `6af4d28 Speed up AVA local volume repeat`
+- `origin/main`: synchronized with local `main`
+- Working tree before checkpoint: **clean**
+- Installed/runtime-tested Kodi addon: **0.10.61**
+- Kodi 0.10.61 functional commit: `5237473 — Improve Kodi skin presentation metadata`
+- Kodi 0.10.61 release commit: `ce59dd5 — Release Apollo Media 0.10.61`
+- Kodi 0.10.61 source gate: **90/90 passed**
+- Kodi 0.10.61 is **runtime-tested but not stable-tagged**
+- Last explicitly stable-tagged Kodi baseline remains **0.10.60**
+- AMS runtime baseline remains **0.2.27**
+
+### Repository state
+Development continued on `main` after Kodi 0.10.61. Current HEAD before this checkpoint is AVA remote work. Do not assume the Kodi release commit is current HEAD.
+
+### Kodi 0.10.61 runtime validation
+Repository-installed Kodi 0.10.61 was confirmed on the headless Kodi client.
+
+Runtime/visual validation established:
+- Kodi-native movie/show/episode media types are exposed.
+- IMDb/TMDb IDs are exposed where available.
+- Poster, fanart and landscape roles render correctly.
+- Episode thumb presentation prefers landscape/backdrop where appropriate.
+- Arctic Fuse 3 renders Apollo Continue Watching correctly as a Landscape widget.
+- Estuary consumes Apollo metadata, art, runtime, progress and canonical navigation correctly.
+
+### Reference-client strategy
+**Estuary is the Apollo reference client.**
+
+Apollo-owned behavior should be complete and correct in stock Kodi before Fuse-specific presentation work is considered complete.
+
+If Apollo behavior is wrong in Estuary, investigate Apollo first. If correct in Estuary but rendered differently in Fuse, investigate the skin/integration layer.
+
+### Estuary audit
+Validated:
+- Apollo root navigation.
+- Library Movies and Library Shows.
+- Canonical show → season → episode navigation.
+- Continue Watching mixed movie/episode presentation and progress.
+- Watchlist → canonical title hierarchy.
+- Discovery pagination / More Results.
+- Native Kodi Search entry and canonical Apollo results.
+- Profile progress rendering across entry points.
+
+Next Up was empty for the current profile during this audit; previously runtime-validated behavior remains known-good.
+
+Known presentation issue: Estuary shows `Sort by: Date` in places where Apollo already supplies meaningful ordering.
+
+Historical/stale duplicate canonical records remain separate cleanup debt.
+
+### Canonical media rule
+Every Apollo title has one canonical media identity/navigation path.
+
+Library, Search, Popular, Trending, Watchlist, Continue Watching, Next Up, recommendations and future feeds are entry points only. Selecting the same title from different entry points must resolve through the same canonical Apollo identity/path.
+
+### Immediate product task
+**Finish the Apollo experience in Estuary before returning to Fuse.**
+
+Priorities:
+1. Audit context-menu behavior against repository implementation.
+2. Avoid redundant visible actions where possible without breaking Apollo explicit playback-intent semantics.
+3. Improve misleading stock sort presentation where practical.
+4. Improve deeper navigation/window labels only where useful and safe.
+5. Final canonical movie/show/episode pass.
+6. Preserve proven resume, bad-stream retry, Next Up and Watchlist behavior.
+
+### Context-menu note
+Playable Apollo items use `playable_media()` and Apollo supplies actions through `_play_context(...)`.
+
+Kodi can independently add native resume/beginning behavior because Apollo exposes Kodi resume metadata. Duplicate-looking actions must therefore be investigated from source semantics before removal.
+
+Next source inspection:
+- `_play_context()`
+- `_watchlist_context()`
+- watched/unwatched actions
+- Current Stream Info / Try Next Stream / Flag Current Stream
+- beginning/local/manual-stream actions
+
+Do not ask the user to paste implementation already available in the repository.
+
+### Artwork direction
+Preferred separation:
+- AMS: canonical media and artwork needed by AMS/HA clients.
+- Kodi artwork/enrichment layer: Kodi/Fuse-specific rich artwork when needed.
+- Fuse: renderer consuming Kodi standard artwork roles.
+
+Investigate TMDb Helper / Skin Info Service / Artwork Dump plugin-item enrichment before building a custom Kodi artwork bridge.
+
+### Binding playback architecture
+- Rooms own playback devices; profiles own viewing state.
+- AMS owns personalized profile state.
+- Kodi owns actual playback observations.
+- Initiating client owns playback decisions.
+- Kodi-origin playback may use Kodi native Resume/Beginning.
+- Card-origin playback sends explicit intent.
+- Bad-stream retries preserve original intent silently.
+- Rejected streams must not mutate valid profile progress.
+- Do not implement resume as visible start-at-zero then seek.
+- Do not reopen the solved resume/bad-stream parent lifecycle chain without new evidence.
+
+---
+
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-06
 ## Checkpoint — Kodi 0.10.60 Watchlist + pagination runtime validation
 - Checkpoint base HEAD before this handoff update: `04c5320 — Release Apollo Media 0.10.60`
