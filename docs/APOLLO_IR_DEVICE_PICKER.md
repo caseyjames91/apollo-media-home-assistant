@@ -1,14 +1,13 @@
-# AVA device picker and readable dropdowns
+# AVA device picker
 
-AVA Bridge 0.9.0 changes device selection to one dropdown containing:
+AVA Bridge 0.9.1 simplifies device selection.
 
-- all devices already registered with Apollo IR Server
-- `Create new device`
-- `Add existing BroadLink device`
+The device dropdown now contains only devices already registered with Apollo IR
+Server. It no longer mixes actions into the device list.
 
-Creating a new device accepts a stable device ID and optional friendly name.
-Registering an existing BroadLink device uses its existing device key without
-altering any learned commands.
+A separate **Create new device** button sits below the dropdown. Creating a
+device accepts a stable device ID and optional friendly name.
 
-Learner and device dropdowns now use a dark, high-contrast custom adapter so
-both the selected value and opened dropdown remain readable on the AVA display.
+The learner and device dropdown rows keep high-contrast white text on a dark
+background, but individual dropdown rows no longer have rounded borders around
+each item.

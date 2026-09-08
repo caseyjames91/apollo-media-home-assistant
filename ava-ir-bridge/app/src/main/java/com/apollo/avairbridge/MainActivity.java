@@ -124,31 +124,11 @@ public class MainActivity extends Activity {
         deviceAdapter = readableSpinnerAdapter(deviceLabels);
         deviceSpinner.setAdapter(deviceAdapter);
         deviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            private boolean handlingAction = false;
-
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                if (handlingAction) return;
-
                 String selected = selectedDeviceId();
-                if ("__create_new__".equals(selected)) {
-                    handlingAction = true;
-                    showCreateDeviceDialog(() -> {
-                        handlingAction = false;
-                        loadDevices();
-                    });
-                    return;
+                if (!selected.isEmpty()) {
+                    prefs.edit().putString("preferred_device", selected).apply();
                 }
-
-                if ("__add_existing__".equals(selected)) {
-                    handlingAction = true;
-                    showAddExistingDeviceDialog(() -> {
-                        handlingAction = false;
-                        loadDevices();
-                    });
-                    return;
-                }
-
-                prefs.edit().putString("preferred_device", selected).apply();
                 renderCommands();
             }
 
@@ -157,13 +137,17 @@ public class MainActivity extends Activity {
         deviceCard.addView(deviceSpinner);
 
         TextView deviceHelp = text(
-                "Choose a device, or create/register one from the bottom of this list.",
+                "Select one of your existing Apollo devices.",
                 13,
                 false
         );
         deviceHelp.setTextColor(Color.rgb(145, 151, 163));
-        deviceHelp.setPadding(0, dp(8), 0, 0);
+        deviceHelp.setPadding(0, dp(8), 0, dp(10));
         deviceCard.addView(deviceHelp);
+
+        Button createDevice = secondaryButton("＋ Create new device");
+        createDevice.setOnClickListener(v -> showCreateDeviceDialog(() -> loadDevices()));
+        deviceCard.addView(createDevice);
 
         commandList = new LinearLayout(this);
         commandList.setOrientation(LinearLayout.VERTICAL);
@@ -291,16 +275,8 @@ public class MainActivity extends Activity {
                     labels.add(item.optString("name", item.getString("id")));
                 }
 
-                ids.add("__create_new__");
-                labels.add("＋ Create new device");
-                ids.add("__add_existing__");
-                labels.add("＋ Add existing BroadLink device");
-
                 handler.post(() -> {
                     String previous = selectedDeviceId();
-                    if ("__create_new__".equals(previous) || "__add_existing__".equals(previous)) {
-                        previous = "";
-                    }
                     deviceIds.clear();
                     deviceLabels.clear();
                     deviceIds.addAll(ids);
@@ -315,13 +291,8 @@ public class MainActivity extends Activity {
                             break;
                         }
                     }
-                    if (!selected) {
-                        for (int i = 0; i < deviceIds.size(); i++) {
-                            if (!deviceIds.get(i).startsWith("__")) {
-                                deviceSpinner.setSelection(i);
-                                break;
-                            }
-                        }
+                    if (!selected && !deviceIds.isEmpty()) {
+                        deviceSpinner.setSelection(0);
                     }
                     renderCommands();
                 });
@@ -329,30 +300,6 @@ public class MainActivity extends Activity {
                 handler.post(() -> learnStatus.setText("Could not load devices: " + e.getMessage()));
             }
         }, "apollo-devices").start();
-    }
-
-    private void showAddExistingDeviceDialog(Runnable onFinished) {
-        EditText input = field("Existing BroadLink device ID", false);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Add existing device")
-                .setMessage(
-                        "Enter the exact BroadLink device name already used in Home Assistant. "
-                                + "Apollo will register it without changing existing learned commands."
-                )
-                .setView(input)
-                .setNegativeButton("Cancel", (dialog, which) -> {
-                    if (onFinished != null) onFinished.run();
-                })
-                .setPositiveButton("Add", (dialog, which) -> {
-                    String device = input.getText().toString().trim();
-                    if (device.isEmpty()) {
-                        if (onFinished != null) onFinished.run();
-                        return;
-                    }
-                    addDevice(device, null, onFinished);
-                })
-                .show();
     }
 
     private void showCreateDeviceDialog(Runnable onFinished) {
@@ -594,13 +541,14 @@ public class MainActivity extends Activity {
         view.setTextSize(16);
         view.setPadding(dp(12), dp(12), dp(12), dp(12));
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(dropdown ? Color.rgb(35, 39, 47) : Color.rgb(31, 34, 41));
-        bg.setCornerRadius(dp(12));
-        if (!dropdown) {
-            bg.setStroke(dp(1), Color.rgb(55, 60, 70));
+        if (dropdown) {
+            view.setBackgroundColor(Color.rgb(35, 39, 47));
+        } else {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.rgb(31, 34, 41));
+            bg.setCornerRadius(dp(12));
+            view.setBackground(bg);
         }
-        view.setBackground(bg);
     }
 
     private JSONObject requestJson(String method, String url, String authToken, String body) throws Exception {
