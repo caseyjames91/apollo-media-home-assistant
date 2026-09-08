@@ -323,7 +323,8 @@ public class MainActivity extends Activity {
     private void showCreateDeviceDialog(Runnable onFinished) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), 0, dp(20), 0);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+        box.setBackgroundColor(Color.rgb(24, 27, 32));
 
         EditText idField = field("Device ID  (example: bedroom_soundbar)", false);
         EditText nameField = field("Friendly name  (example: Bedroom Soundbar)", false);
@@ -654,11 +655,25 @@ public class MainActivity extends Activity {
     private EditText field(String hint, boolean password) {
         EditText e = new EditText(this);
         e.setHint(hint);
-        e.setHintTextColor(Color.rgb(120, 126, 138));
+        e.setHintTextColor(Color.rgb(150, 156, 168));
         e.setTextColor(Color.WHITE);
         e.setSingleLine(true);
         e.setTextSize(16);
         e.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.rgb(34, 37, 44));
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.rgb(58, 63, 74));
+        e.setBackground(bg);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.setMargins(0, dp(6), 0, dp(6));
+        e.setLayoutParams(lp);
+
         if (password) {
             e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         }
