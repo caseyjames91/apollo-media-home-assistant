@@ -24,6 +24,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -61,6 +62,7 @@ public class MainActivity extends Activity {
     private TextView learnStatus;
     private LinearLayout commandList;
     private TextView deviceEmptyState;
+    private EditText commandSearch;
     private ArrayAdapter<String> learnerAdapter;
     private ArrayAdapter<String> deviceAdapter;
     private Button learnIr;
@@ -151,9 +153,46 @@ public class MainActivity extends Activity {
         deviceEmptyState.setPadding(0, dp(8), 0, dp(10));
         deviceCard.addView(deviceEmptyState);
 
-        Button createDevice = secondaryButton("＋ Create new device");
+        LinearLayout deviceActions = new LinearLayout(this);
+        deviceActions.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button refreshDevices = secondaryButton("Refresh");
+        refreshDevices.setOnClickListener(v -> {
+            deviceEmptyState.setText("Refreshing devices…");
+            loadDevices();
+        });
+
+        Button createDevice = primaryButton("＋ Create");
         createDevice.setOnClickListener(v -> showCreateDeviceDialog(() -> loadDevices()));
-        deviceCard.addView(createDevice);
+
+        LinearLayout.LayoutParams refreshLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        );
+        refreshLp.setMargins(0, 0, dp(6), 0);
+
+        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        );
+        createLp.setMargins(dp(6), 0, 0, 0);
+
+        deviceActions.addView(refreshDevices, refreshLp);
+        deviceActions.addView(createDevice, createLp);
+        deviceCard.addView(deviceActions);
+
+        Button manageDevice = secondaryButton("Manage selected device");
+        manageDevice.setOnClickListener(v -> showManageDeviceDialog());
+        deviceCard.addView(manageDevice);
+
+        commandSearch = field("Search commands", false);
+        commandSearch.setSingleLine(true);
+        commandSearch.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {
+                renderCommands();
+            }
+            @Override public void afterTextChanged(android.text.Editable editable) {}
+        });
+        deviceCard.addView(commandSearch);
 
         commandList = new LinearLayout(this);
         commandList.setOrientation(LinearLayout.VERTICAL);
@@ -278,8 +317,17 @@ public class MainActivity extends Activity {
                 List<JSONObject> records = new ArrayList<>();
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject item = arr.getJSONObject(i);
-                    ids.add(item.getString("id"));
-                    labels.add(item.optString("name", item.getString("id")));
+                    String id = item.getString("id");
+                    String name = item.optString("name", id);
+                    JSONObject commands = item.optJSONObject("commands");
+                    int count = commands == null ? 0 : commands.length();
+                    String room = item.optString("room", "");
+                    ids.add(id);
+                    labels.add(
+                            name
+                                    + " · " + count + (count == 1 ? " command" : " commands")
+                                    + (room.isEmpty() ? "" : " · " + room)
+                    );
                     records.add(item);
                 }
 
@@ -434,6 +482,207 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showManageDeviceDialog() {
+        int position = deviceSpinner == null ? -1 : deviceSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= deviceRecords.size()) {
+            learnStatus.setText("Select a device first.");
+            return;
+        }
+
+        JSONObject record = deviceRecords.get(position);
+        String device = record.optString("id", "");
+        String name = record.optString("name", device);
+        String room = record.optString("room", "");
+        JSONObject commands = record.optJSONObject("commands");
+        int commandCount = commands == null ? 0 : commands.length();
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(20), dp(20), dp(20), dp(18));
+
+        GradientDrawable shellBg = new GradientDrawable();
+        shellBg.setColor(Color.rgb(24, 27, 32));
+        shellBg.setCornerRadius(dp(22));
+        shellBg.setStroke(dp(1), Color.rgb(50, 55, 65));
+        shell.setBackground(shellBg);
+
+        TextView title = text(name, 22, true);
+        shell.addView(title);
+
+        TextView meta = text(
+                device + " · " + commandCount + (commandCount == 1 ? " command" : " commands"),
+                13,
+                false
+        );
+        meta.setTextColor(Color.rgb(145, 151, 163));
+        meta.setPadding(0, dp(4), 0, dp(12));
+        shell.addView(meta);
+
+        EditText roomField = field("Room (optional)", false);
+        roomField.setText(room);
+        shell.addView(roomField);
+
+        Button saveRoom = primaryButton("Save room");
+        saveRoom.setOnClickListener(v -> {
+            setDeviceRoom(device, roomField.getText().toString().trim());
+            dialog.dismiss();
+        });
+        shell.addView(saveRoom);
+
+        Button deleteDevice = secondaryButton(
+                commandCount == 0 ? "Delete device" : "Delete device & all commands"
+        );
+        deleteDevice.setOnClickListener(v -> {
+            dialog.dismiss();
+            String remote = selectedLearnerId();
+            showConfirmDialog(
+                    "Delete device?",
+                    commandCount == 0
+                            ? "Delete " + name + " from Apollo?"
+                            : "Delete " + name + " and all " + commandCount
+                                    + " commands from Home Assistant/BroadLink and Apollo?",
+                    "Delete",
+                    () -> deleteDevice(remote, device, commandCount > 0)
+            );
+        });
+        shell.addView(deleteDevice);
+
+        Button close = secondaryButton("Close");
+        close.setOnClickListener(v -> dialog.dismiss());
+        shell.addView(close);
+
+        dialog.setContentView(shell);
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            int width = getResources().getDisplayMetrics().widthPixels - dp(28);
+            window.setLayout(width, LinearLayout.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private void setDeviceRoom(String device, String room) {
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("device", device);
+                body.put("room", room);
+                requestJson("POST", base + "/api/devices/room", key, body.toString());
+
+                handler.post(() -> {
+                    learnStatus.setText(room.isEmpty() ? "✓ Room cleared" : "✓ Assigned to " + room);
+                    loadDevices();
+                });
+            } catch (Exception e) {
+                handler.post(() -> learnStatus.setText("Room update failed: " + e.getMessage()));
+            }
+        }, "apollo-device-room").start();
+    }
+
+    private void deleteDevice(String remote, String device, boolean deleteCommands) {
+        if (deleteCommands && (remote == null || remote.isEmpty())) {
+            learnStatus.setText("Choose the BroadLink learner before deleting this device.");
+            return;
+        }
+
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        learnStatus.setText("Deleting device…");
+
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("device", device);
+                body.put("delete_commands", deleteCommands);
+                if (remote != null && !remote.isEmpty()) {
+                    body.put("remote_entity_id", remote);
+                }
+
+                requestJson("POST", base + "/api/devices/delete", key, body.toString());
+
+                handler.post(() -> {
+                    learnStatus.setText("✓ Device deleted");
+                    prefs.edit().remove("preferred_device").apply();
+                    loadDevices();
+                });
+            } catch (Exception e) {
+                handler.post(() -> learnStatus.setText("Device delete failed: " + e.getMessage()));
+            }
+        }, "apollo-delete-device").start();
+    }
+
+    private void showConfirmDialog(
+            String titleText,
+            String messageText,
+            String confirmText,
+            Runnable onConfirm
+    ) {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(20), dp(20), dp(20), dp(18));
+
+        GradientDrawable shellBg = new GradientDrawable();
+        shellBg.setColor(Color.rgb(24, 27, 32));
+        shellBg.setCornerRadius(dp(22));
+        shellBg.setStroke(dp(1), Color.rgb(50, 55, 65));
+        shell.setBackground(shellBg);
+
+        TextView title = text(titleText, 21, true);
+        shell.addView(title);
+
+        TextView message = text(messageText, 14, false);
+        message.setTextColor(Color.rgb(165, 171, 183));
+        message.setPadding(0, dp(8), 0, dp(16));
+        shell.addView(message);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button cancel = secondaryButton("Cancel");
+        Button confirm = primaryButton(confirmText);
+
+        LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        );
+        left.setMargins(0, 0, dp(6), 0);
+
+        LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        );
+        right.setMargins(dp(6), 0, 0, 0);
+
+        actions.addView(cancel, left);
+        actions.addView(confirm, right);
+        shell.addView(actions);
+
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        confirm.setOnClickListener(v -> {
+            dialog.dismiss();
+            onConfirm.run();
+        });
+
+        dialog.setContentView(shell);
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            int width = getResources().getDisplayMetrics().widthPixels - dp(28);
+            window.setLayout(width, LinearLayout.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
     private void addDevice(String device, String displayName, Runnable onFinished) {
         final String base = cleanBaseUrl(serverUrl.getText().toString());
         final String key = apiKey.getText().toString().trim();
@@ -478,6 +727,10 @@ public class MainActivity extends Activity {
         String deviceId = deviceRecord.optString("id", selectedDeviceId());
         JSONObject commands = deviceRecord.optJSONObject("commands");
 
+        String query = commandSearch == null
+                ? ""
+                : commandSearch.getText().toString().trim().toLowerCase();
+
         TextView heading = text("Commands", 16, true);
         heading.setPadding(0, dp(10), 0, dp(6));
         commandList.addView(heading);
@@ -496,13 +749,18 @@ public class MainActivity extends Activity {
         JSONArray names = commands.names();
         if (names == null) return;
 
+        int shown = 0;
+
         for (int i = 0; i < names.length(); i++) {
             String command = names.optString(i, "");
             if (command.isEmpty()) continue;
+            if (!query.isEmpty() && !command.toLowerCase().contains(query)) continue;
 
             JSONObject meta = commands.optJSONObject(command);
             String type = meta == null ? "" : meta.optString("type", "");
             String learnerEntity = meta == null ? "" : meta.optString("learner_entity_id", "");
+            String learnedAt = meta == null ? "" : meta.optString("learned_at", "");
+            String lastUsedAt = meta == null ? "" : meta.optString("last_used_at", "");
 
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -527,11 +785,14 @@ public class MainActivity extends Activity {
             TextView nameView = text(command, 16, true);
             labels.addView(nameView);
 
-            TextView typeView = text(
-                    type.isEmpty() ? "Learned command" : type.toUpperCase() + " command",
-                    12,
-                    false
-            );
+            String metaText = type.isEmpty() ? "Learned command" : type.toUpperCase() + " command";
+            if (!lastUsedAt.isEmpty() && !"null".equals(lastUsedAt)) {
+                metaText += " · used";
+            } else if (!learnedAt.isEmpty()) {
+                metaText += " · learned";
+            }
+
+            TextView typeView = text(metaText, 12, false);
             typeView.setTextColor(Color.rgb(135, 142, 154));
             labels.addView(typeView);
 
@@ -549,13 +810,111 @@ public class MainActivity extends Activity {
             );
 
             LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(
-                    dp(88),
+                    dp(82),
                     LinearLayout.LayoutParams.WRAP_CONTENT
             );
+            testLp.setMargins(0, 0, dp(6), 0);
             row.addView(test, testLp);
 
+            Button menu = secondaryButton("⋮");
+            menu.setTextSize(20);
+            menu.setOnClickListener(v ->
+                    showCommandMenu(menu, learnerEntity, deviceId, command)
+            );
+
+            LinearLayout.LayoutParams menuLp = new LinearLayout.LayoutParams(
+                    dp(54),
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            row.addView(menu, menuLp);
+
             commandList.addView(row);
+            shown++;
         }
+
+        if (shown == 0) {
+            TextView empty = text("No commands match your search.", 14, false);
+            empty.setTextColor(Color.rgb(145, 151, 163));
+            commandList.addView(empty);
+        }
+    }
+
+    private void showCommandMenu(
+            View anchor,
+            String storedRemote,
+            String device,
+            String command
+    ) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("Test");
+        popup.getMenu().add("Delete");
+
+        popup.setOnMenuItemClickListener(item -> {
+            String title = item.getTitle().toString();
+            if ("Test".equals(title)) {
+                Button temp = secondaryButton("Test");
+                sendCommandFromBrowser(temp, storedRemote, device, command);
+                return true;
+            }
+            if ("Delete".equals(title)) {
+                showDeleteCommandDialog(storedRemote, device, command);
+                return true;
+            }
+            return false;
+        });
+
+        popup.show();
+    }
+
+    private void showDeleteCommandDialog(
+            String storedRemote,
+            String device,
+            String command
+    ) {
+        String remote = storedRemote == null || storedRemote.isEmpty()
+                ? selectedLearnerId()
+                : storedRemote;
+
+        if (remote == null || remote.isEmpty()) {
+            learnStatus.setText("Choose the BroadLink learner before deleting this command.");
+            return;
+        }
+
+        final String deleteRemote = remote;
+
+        showConfirmDialog(
+                "Delete command?",
+                device + " · " + command + "
+
+This removes it from Home Assistant/BroadLink and Apollo.",
+                "Delete",
+                () -> deleteCommand(deleteRemote, device, command)
+        );
+    }
+
+    private void deleteCommand(String remote, String device, String command) {
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        learnStatus.setText("Deleting " + command + "…");
+
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("remote_entity_id", remote);
+                body.put("device", device);
+                body.put("command", command);
+
+                requestJson("POST", base + "/api/commands/delete", key, body.toString());
+
+                handler.post(() -> {
+                    learnStatus.setText("✓ Deleted  " + device + " · " + command);
+                    loadDevices();
+                });
+            } catch (Exception e) {
+                handler.post(() -> learnStatus.setText("Delete failed: " + e.getMessage()));
+            }
+        }, "apollo-delete-command").start();
     }
 
     private void sendCommandFromBrowser(
@@ -649,7 +1008,8 @@ public class MainActivity extends Activity {
 
                 handler.post(() -> learnStatus.setText(
                         type.equals("rf")
-                                ? "RF learning active — follow the BroadLink RF sequence."
+                                ? "RF learning active — hold/press the original remote near BroadLink. "
+                                        + "If BroadLink requests another press, press it again."
                                 : "IR learning active — point the original remote at BroadLink and press the button."
                 ));
 

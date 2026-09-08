@@ -1,5 +1,5 @@
 name: Apollo IR Server
-version: "0.4.0"
+version: "0.5.0"
 slug: apollo_ir_server
 description: Apollo IR/RF learning backend for AVA remotes using Home Assistant and BroadLink.
 url: https://github.com/caseyjames91/apollo-media-home-assistant
