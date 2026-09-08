@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -17,6 +18,7 @@ HA_URL = os.environ.get("HOME_ASSISTANT_URL", "http://supervisor/core").rstrip("
 HA_TOKEN = os.environ.get("HOME_ASSISTANT_TOKEN", "")
 API_KEY = os.environ.get("APOLLO_IR_API_KEY", "")
 REGISTRY_PATH = Path("/config/devices.json")
+HA_STORAGE_PATH = Path("/homeassistant/.storage")
 
 app = FastAPI(title="Apollo IR Server", version=APP_VERSION)
 jobs: dict[str, dict[str, Any]] = {}
@@ -109,6 +111,77 @@ def register_command(
     }
     entry["updated_at"] = now_iso()
     save_registry(registry)
+
+
+def _looks_like_broadlink_ir(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) < 8:
+        return False
+    try:
+        raw = base64.b64decode(value.strip(), validate=True)
+    except Exception:
+        return False
+    return len(raw) >= 6 and raw[0] == 0x26
+
+
+def _find_raw_code_in_object(
+    obj: Any,
+    device: str,
+    command: str,
+) -> str | None:
+    if isinstance(obj, dict):
+        direct_device = obj.get(device)
+        if isinstance(direct_device, dict):
+            value = direct_device.get(command)
+            if _looks_like_broadlink_ir(value):
+                return value.strip()
+
+        if obj.get("device") == device:
+            commands = obj.get("commands")
+            if isinstance(commands, dict):
+                value = commands.get(command)
+                if _looks_like_broadlink_ir(value):
+                    return value.strip()
+
+        for value in obj.values():
+            found = _find_raw_code_in_object(value, device, command)
+            if found:
+                return found
+
+    elif isinstance(obj, list):
+        for value in obj:
+            found = _find_raw_code_in_object(value, device, command)
+            if found:
+                return found
+
+    return None
+
+
+def find_broadlink_raw_code(device: str, command: str) -> tuple[str, str]:
+    if not HA_STORAGE_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Home Assistant storage is not mounted in Apollo IR Server",
+        )
+
+    candidates = sorted(
+        path for path in HA_STORAGE_PATH.iterdir()
+        if path.is_file() and "broadlink" in path.name.lower()
+    )
+
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        found = _find_raw_code_in_object(data, device, command)
+        if found:
+            return found, path.name
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"No raw BroadLink IR code found for {device} / {command}",
+    )
 
 
 class LearnRequest(BaseModel):
@@ -211,6 +284,7 @@ async def status(x_apollo_ir_key: str | None = Header(default=None)) -> dict[str
         "version": APP_VERSION,
         "ha_backend": True,
         "device_registry": True,
+        "raw_code_import": True,
     }
 
 
@@ -310,6 +384,33 @@ async def get_job(
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Learning job not found")
     return jobs[job_id]
+
+
+@app.get("/api/raw-code")
+async def raw_code(
+    device: str,
+    command: str,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+
+    device = device.strip()
+    command = command.strip()
+
+    if not device or not command:
+        raise HTTPException(status_code=400, detail="device and command are required")
+
+    code, source = find_broadlink_raw_code(device, command)
+
+    return {
+        "ok": True,
+        "device": device,
+        "command": command,
+        "format": "broadlink_base64",
+        "carrier_hz": 38000,
+        "code": code,
+        "source": source,
+    }
 
 
 @app.post("/api/send")
