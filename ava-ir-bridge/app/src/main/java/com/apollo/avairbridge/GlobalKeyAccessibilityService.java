@@ -51,7 +51,7 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
             dispatchVolumeCommand(heldPrefs, heldRemote, heldDevice, command);
 
             // Local IR is fast enough to behave like a normal handheld remote.
-            mainHandler.postDelayed(this, 105);
+            mainHandler.postDelayed(this, 70);
         }
     };
 
@@ -149,7 +149,7 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
                 dispatchVolumeCommand(prefs, remote, device, command);
 
                 // Start local hold-repeat quickly after the initial press.
-                mainHandler.postDelayed(volumeRepeat, 280);
+                mainHandler.postDelayed(volumeRepeat, 220);
             } else if (heldKeyCode != keyCode) {
                 // Defensive: if AVA changes direction without a clean UP event,
                 // switch the held direction rather than starting a second loop.
