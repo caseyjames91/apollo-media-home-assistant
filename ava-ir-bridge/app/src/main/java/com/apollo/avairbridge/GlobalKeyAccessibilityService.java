@@ -26,7 +26,35 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
     private static final String TAG = "ApolloGlobalKeys";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean volumeKeyHeld = false;
+    private int heldKeyCode = KeyEvent.KEYCODE_UNKNOWN;
     private int lockedMediaVolume = -1;
+    private SharedPreferences heldPrefs;
+    private String heldRemote = "";
+    private String heldDevice = "";
+
+    private final Runnable volumeRepeat = new Runnable() {
+        @Override
+        public void run() {
+            if (!volumeKeyHeld
+                    || heldPrefs == null
+                    || heldRemote.isEmpty()
+                    || heldDevice.isEmpty()
+                    || (heldKeyCode != KeyEvent.KEYCODE_VOLUME_UP
+                    && heldKeyCode != KeyEvent.KEYCODE_VOLUME_DOWN)) {
+                return;
+            }
+
+            String command = heldKeyCode == KeyEvent.KEYCODE_VOLUME_UP
+                    ? "volume_up"
+                    : "volume_down";
+
+            sendApolloCommandAsync(heldPrefs, heldRemote, heldDevice, command);
+
+            // We synthesize repeat ourselves rather than depending on AVA firmware
+            // to deliver Android repeat key events consistently.
+            mainHandler.postDelayed(this, 170);
+        }
+    };
 
     private final Runnable volumeGuard = new Runnable() {
         @Override
@@ -105,35 +133,70 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
                         : audio.getStreamVolume(AudioManager.STREAM_MUSIC);
 
                 volumeKeyHeld = true;
+                heldKeyCode = keyCode;
+                heldPrefs = prefs;
+                heldRemote = remote;
+                heldDevice = device;
+
                 mainHandler.removeCallbacks(volumeGuard);
+                mainHandler.removeCallbacks(volumeRepeat);
                 mainHandler.post(volumeGuard);
+
+                String command = keyCode == KeyEvent.KEYCODE_VOLUME_UP
+                        ? "volume_up"
+                        : "volume_down";
+
+                // Immediate first step, like a normal remote.
+                sendApolloCommandAsync(prefs, remote, device, command);
+
+                // Then begin our own hold-repeat after a short initial delay.
+                mainHandler.postDelayed(volumeRepeat, 320);
+            } else if (heldKeyCode != keyCode) {
+                // Defensive: if AVA changes direction without a clean UP event,
+                // switch the held direction rather than starting a second loop.
+                heldKeyCode = keyCode;
             }
-
-            String command = keyCode == KeyEvent.KEYCODE_VOLUME_UP
-                    ? "volume_up"
-                    : "volume_down";
-
-            sendApolloCommandAsync(prefs, remote, device, command);
 
         } else if (event.getAction() == KeyEvent.ACTION_UP) {
             volumeKeyHeld = false;
+            heldKeyCode = KeyEvent.KEYCODE_UNKNOWN;
+            heldPrefs = null;
+            heldRemote = "";
+            heldDevice = "";
+
             mainHandler.removeCallbacks(volumeGuard);
+            mainHandler.removeCallbacks(volumeRepeat);
 
             final int restoreVolume = lockedMediaVolume;
             lockedMediaVolume = -1;
 
             if (restoreVolume >= 0) {
-                mainHandler.postDelayed(() -> {
-                    AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
-                    if (audio != null
-                            && audio.getStreamVolume(AudioManager.STREAM_MUSIC) != restoreVolume) {
-                        audio.setStreamVolume(AudioManager.STREAM_MUSIC, restoreVolume, 0);
-                    }
-                }, 80);
+                // AVA's vendor volume handler can run after AccessibilityService.
+                // Restore multiple times after release so a late Volume-Up write
+                // cannot leave Android media volume changed.
+                restoreMediaVolume(restoreVolume, 0);
+                restoreMediaVolume(restoreVolume, 40);
+                restoreMediaVolume(restoreVolume, 100);
+                restoreMediaVolume(restoreVolume, 220);
+                restoreMediaVolume(restoreVolume, 450);
             }
         }
 
         return true;
+    }
+
+    private void restoreMediaVolume(int volume, long delayMs) {
+        mainHandler.postDelayed(() -> {
+            try {
+                AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+                if (audio != null
+                        && audio.getStreamVolume(AudioManager.STREAM_MUSIC) != volume) {
+                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not restore AVA media volume", e);
+            }
+        }, delayMs);
     }
 
     private void sendApolloCommandAsync(
@@ -241,16 +304,26 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
     @Override
     public void onInterrupt() {
         volumeKeyHeld = false;
+        heldKeyCode = KeyEvent.KEYCODE_UNKNOWN;
+        heldPrefs = null;
+        heldRemote = "";
+        heldDevice = "";
         lockedMediaVolume = -1;
         mainHandler.removeCallbacks(volumeGuard);
+        mainHandler.removeCallbacks(volumeRepeat);
         Log.w(TAG, "Accessibility service interrupted");
     }
 
     @Override
     public boolean onUnbind(android.content.Intent intent) {
         volumeKeyHeld = false;
+        heldKeyCode = KeyEvent.KEYCODE_UNKNOWN;
+        heldPrefs = null;
+        heldRemote = "";
+        heldDevice = "";
         lockedMediaVolume = -1;
         mainHandler.removeCallbacks(volumeGuard);
+        mainHandler.removeCallbacks(volumeRepeat);
 
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
