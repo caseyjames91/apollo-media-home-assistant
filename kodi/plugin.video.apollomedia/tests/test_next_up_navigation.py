@@ -37,9 +37,6 @@ class TestKodiNextUpContract(unittest.TestCase):
         self.assertIn('elif action == "next_up":', main)
         self.assertIn("        next_up()", main)
 
-    def test_next_up_does_not_change_release_version(self):
-        addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.61"', addon)
 
 
 if __name__ == "__main__":

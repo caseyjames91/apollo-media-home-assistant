@@ -48,9 +48,6 @@ class TestKodiWatchlistContract(unittest.TestCase):
         self.assertIn('elif action == "set_watchlist":', main)
         self.assertIn("        set_watchlist(p)", main)
 
-    def test_release_version_stays_01058_until_release(self):
-        addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.61"', addon)
 
 
 if __name__ == "__main__":

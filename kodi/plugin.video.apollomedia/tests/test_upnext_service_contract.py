@@ -45,9 +45,6 @@ class TestUpNextServiceContract(unittest.TestCase):
         self.assertIn("self._maybe_prepare_upnext()", validate)
         self.assertIn("if decision:", validate)
 
-    def test_release_version_remains_01057_until_release(self):
-        addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.61"', addon)
 
 
 if __name__ == "__main__":

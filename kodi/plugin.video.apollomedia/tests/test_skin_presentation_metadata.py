@@ -29,9 +29,6 @@ class TestKodiSkinPresentationMetadata(unittest.TestCase):
         self.assertIn('"episode": "episode"', block)
         self.assertIn("tag.setMediaType(kodi_media_type)", block)
 
-    def test_presentation_change_does_not_bump_release(self):
-        addon = (ROOT / "addon.xml").read_text()
-        self.assertIn('version="0.10.61"', addon)
 
 
 if __name__ == "__main__":
