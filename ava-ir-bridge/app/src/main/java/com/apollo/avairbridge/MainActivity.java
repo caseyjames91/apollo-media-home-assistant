@@ -3,8 +3,10 @@ package com.apollo.avairbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -15,7 +17,9 @@ import android.hardware.ConsumerIrManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -67,6 +71,8 @@ public class MainActivity extends Activity {
     private ArrayAdapter<String> deviceAdapter;
     private Button learnIr;
     private Button learnRf;
+    private TextView globalKeyStatus;
+    private BroadcastReceiver globalKeyReceiver;
 
     private String lastDevice = "";
     private String lastCommand = "";
@@ -124,6 +130,32 @@ public class MainActivity extends Activity {
         Button refresh = secondaryButton("Refresh learners");
         refresh.setOnClickListener(v -> loadLearners());
         learnerCard.addView(refresh);
+
+        LinearLayout keyCard = card();
+        root.addView(keyCard);
+        keyCard.addView(sectionTitle("Global volume keys"));
+
+        globalKeyStatus = text("Checking accessibility service…", 14, false);
+        globalKeyStatus.setTextColor(Color.rgb(170, 176, 188));
+        globalKeyStatus.setPadding(0, 0, 0, dp(10));
+        keyCard.addView(globalKeyStatus);
+
+        Button accessibilitySettings = primaryButton("Open Accessibility settings");
+        accessibilitySettings.setOnClickListener(v -> {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            startActivity(intent);
+        });
+        keyCard.addView(accessibilitySettings);
+
+        TextView keyHelp = text(
+                "Enable AVA IR Bridge, then leave this app and press the physical volume buttons. "
+                        + "This diagnostic does not consume the buttons or send IR yet.",
+                12,
+                false
+        );
+        keyHelp.setTextColor(Color.rgb(140, 146, 158));
+        keyHelp.setPadding(0, dp(10), 0, 0);
+        keyCard.addView(keyHelp);
 
         LinearLayout deviceCard = card();
         root.addView(deviceCard);
@@ -239,7 +271,78 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
         startBridge();
+        setupGlobalKeyDiagnostics();
         refreshAll();
+        refreshGlobalKeyStatus();
+    }
+
+    private void setupGlobalKeyDiagnostics() {
+        globalKeyReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!GlobalKeyAccessibilityService.ACTION_KEY_EVENT.equals(intent.getAction())) return;
+                String key = intent.getStringExtra("key");
+                String action = intent.getStringExtra("action");
+                globalKeyStatus.setText("✓ Global key received: " + key + " " + action);
+                globalKeyStatus.setTextColor(Color.rgb(126, 231, 135));
+            }
+        };
+
+        IntentFilter filter = new IntentFilter(GlobalKeyAccessibilityService.ACTION_KEY_EVENT);
+        registerReceiver(globalKeyReceiver, filter);
+    }
+
+    private boolean isGlobalKeyServiceEnabled() {
+        String expected = getPackageName() + "/" + GlobalKeyAccessibilityService.class.getName();
+        String enabled = Settings.Secure.getString(
+                getContentResolver(),
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        );
+        if (enabled == null || enabled.isEmpty()) return false;
+
+        TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(':');
+        splitter.setString(enabled);
+        while (splitter.hasNext()) {
+            String value = splitter.next();
+            if (value.equalsIgnoreCase(expected)) return true;
+        }
+        return false;
+    }
+
+    private void refreshGlobalKeyStatus() {
+        if (globalKeyStatus == null) return;
+
+        boolean enabled = isGlobalKeyServiceEnabled();
+        String lastKey = prefs.getString("global_key_last_key", "");
+        String lastAction = prefs.getString("global_key_last_action", "");
+
+        if (enabled) {
+            if (lastKey.isEmpty()) {
+                globalKeyStatus.setText("● Enabled — waiting for a physical volume key");
+            } else {
+                globalKeyStatus.setText("● Enabled — last: " + lastKey + " " + lastAction);
+            }
+            globalKeyStatus.setTextColor(Color.rgb(126, 231, 135));
+        } else {
+            globalKeyStatus.setText("● Disabled — enable AVA IR Bridge in Accessibility");
+            globalKeyStatus.setTextColor(Color.rgb(255, 190, 110));
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshGlobalKeyStatus();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (globalKeyReceiver != null) {
+            try {
+                unregisterReceiver(globalKeyReceiver);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        super.onDestroy();
     }
 
     private void startBridge() {
