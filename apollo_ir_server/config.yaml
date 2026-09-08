@@ -1,0 +1,25 @@
+name: Apollo IR Server
+version: "0.1.0"
+slug: apollo_ir_server
+description: Apollo IR/RF learning backend for AVA remotes using Home Assistant and BroadLink.
+url: https://github.com/caseyjames91/apollo-media-home-assistant
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+homeassistant_api: true
+hassio_api: true
+map:
+  - addon_config:rw
+options:
+  log_level: info
+  api_key: ""
+schema:
+  log_level: list(debug|info|warning|error)
+  api_key: password?
+ports:
+  8100/tcp: 8100
+ports_description:
+  8100/tcp: Apollo IR API for AVA remotes

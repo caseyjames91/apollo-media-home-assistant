@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
     private static final String PREFS = "apollo_ir_bridge";
-    private static final String DEFAULT_HA_URL = "http://homeassistant.local:8123";
+    private static final String DEFAULT_HA_URL = "http://homeassistant.local:8100";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("Apollo AVA Bridge 0.5.0");
+        title.setText("Apollo AVA Bridge 0.6.0");
         title.setTextSize(24);
         root.addView(title);
 
@@ -72,8 +72,8 @@ public class MainActivity extends Activity {
 
         addSection(root, "Home Assistant");
 
-        haUrl = addField(root, "Home Assistant URL", false);
-        token = addField(root, "Long-lived access token", true);
+        haUrl = addField(root, "Apollo IR Server URL", false);
+        token = addField(root, "Apollo IR API key (optional)", true);
         learner = addField(root, "BroadLink learner entity", false);
 
         haUrl.setText(prefs.getString("ha_url", DEFAULT_HA_URL));
@@ -81,7 +81,7 @@ public class MainActivity extends Activity {
         learner.setText(prefs.getString("learner", ""));
 
         Button save = new Button(this);
-        save.setText("Save Home Assistant Settings");
+        save.setText("Save Apollo IR Settings");
         save.setOnClickListener(v -> saveSettings());
         root.addView(save);
 
@@ -108,9 +108,8 @@ public class MainActivity extends Activity {
 
         TextView note = new TextView(this);
         note.setText(
-                "Learning is performed by Home Assistant using the selected BroadLink remote. "
-                        + "The AVA provides the UI and shows completion feedback; Home Assistant "
-                        + "remains the backend and command store."
+                "Learning is performed by Apollo IR Server through Home Assistant and the selected BroadLink remote. "
+                        + "The AVA is the user interface; Home Assistant remains hidden in the backend."
         );
         note.setPadding(0, dp(8), 0, dp(12));
         root.addView(note);
@@ -162,7 +161,7 @@ public class MainActivity extends Activity {
                 .putString("ha_token", token.getText().toString().trim())
                 .putString("learner", learner.getText().toString().trim())
                 .apply();
-        learnStatus.setText("Home Assistant settings saved.");
+        learnStatus.setText("Apollo IR settings saved.");
     }
 
     private void setLearning(boolean busy) {
@@ -181,8 +180,8 @@ public class MainActivity extends Activity {
         String device = deviceName.getText().toString().trim();
         String command = commandName.getText().toString().trim();
 
-        if (base.isEmpty() || auth.isEmpty() || remote.isEmpty()) {
-            learnStatus.setText("Set Home Assistant URL, token, and BroadLink learner first.");
+        if (base.isEmpty() || remote.isEmpty()) {
+            learnStatus.setText("Set the Apollo IR Server URL and BroadLink learner first.");
             return;
         }
         if (device.isEmpty() || command.isEmpty()) {
@@ -208,7 +207,7 @@ public class MainActivity extends Activity {
 
                 JSONObject response = requestJson(
                         "POST",
-                        base + "/api/apollo_ir/learn",
+                        base + "/api/learn",
                         auth,
                         body.toString()
                 );
@@ -238,7 +237,7 @@ public class MainActivity extends Activity {
                     Thread.sleep(900);
                     JSONObject job = requestJson(
                             "GET",
-                            base + "/api/apollo_ir/jobs/" + id,
+                            base + "/api/jobs/" + id,
                             auth,
                             null
                     );
@@ -275,7 +274,9 @@ public class MainActivity extends Activity {
         connection.setRequestMethod(method);
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(7000);
-        connection.setRequestProperty("Authorization", "Bearer " + authToken);
+        if (authToken != null && !authToken.isEmpty()) {
+            connection.setRequestProperty("X-Apollo-IR-Key", authToken);
+        }
         connection.setRequestProperty("Accept", "application/json");
 
         if (body != null) {
