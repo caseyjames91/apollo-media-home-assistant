@@ -23,8 +23,8 @@ import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -173,15 +173,26 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         );
-        createLp.setMargins(dp(6), 0, 0, 0);
+        createLp.setMargins(dp(10), 0, 0, 0);
 
         deviceActions.addView(refreshDevices, refreshLp);
         deviceActions.addView(createDevice, createLp);
-        deviceCard.addView(deviceActions);
+
+        LinearLayout.LayoutParams deviceActionsLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        deviceActionsLp.setMargins(0, dp(4), 0, dp(10));
+        deviceCard.addView(deviceActions, deviceActionsLp);
 
         Button manageDevice = secondaryButton("Manage selected device");
         manageDevice.setOnClickListener(v -> showManageDeviceDialog());
-        deviceCard.addView(manageDevice);
+        LinearLayout.LayoutParams manageLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        manageLp.setMargins(0, 0, 0, dp(10));
+        deviceCard.addView(manageDevice, manageLp);
 
         commandSearch = field("Search commands", false);
         commandSearch.setSingleLine(true);
@@ -427,7 +438,7 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
         );
-        cancelLp.setMargins(0, 0, dp(6), 0);
+        cancelLp.setMargins(0, 0, dp(10), 0);
 
         LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(
                 0,
@@ -523,6 +534,12 @@ public class MainActivity extends Activity {
 
         EditText roomField = field("Room (optional)", false);
         roomField.setText(room);
+        LinearLayout.LayoutParams roomLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        roomLp.setMargins(0, dp(4), 0, dp(10));
+        roomField.setLayoutParams(roomLp);
         shell.addView(roomField);
 
         Button saveRoom = primaryButton("Save room");
@@ -530,7 +547,12 @@ public class MainActivity extends Activity {
             setDeviceRoom(device, roomField.getText().toString().trim());
             dialog.dismiss();
         });
-        shell.addView(saveRoom);
+        LinearLayout.LayoutParams saveRoomLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        saveRoomLp.setMargins(0, 0, 0, dp(10));
+        shell.addView(saveRoom, saveRoomLp);
 
         Button deleteDevice = secondaryButton(
                 commandCount == 0 ? "Delete device" : "Delete device & all commands"
@@ -548,7 +570,12 @@ public class MainActivity extends Activity {
                     () -> deleteDevice(remote, device, commandCount > 0)
             );
         });
-        shell.addView(deleteDevice);
+        LinearLayout.LayoutParams deleteDeviceLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        deleteDeviceLp.setMargins(0, 0, 0, dp(10));
+        shell.addView(deleteDevice, deleteDeviceLp);
 
         Button close = secondaryButton("Close");
         close.setOnClickListener(v -> dialog.dismiss());
@@ -655,12 +682,12 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         );
-        left.setMargins(0, 0, dp(6), 0);
+        left.setMargins(0, 0, dp(8), 0);
 
         LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
         );
-        right.setMargins(dp(6), 0, 0, 0);
+        right.setMargins(dp(8), 0, 0, 0);
 
         actions.addView(cancel, left);
         actions.addView(confirm, right);
@@ -803,30 +830,34 @@ public class MainActivity extends Activity {
             );
             row.addView(labels, labelsLp);
 
-            Button test = secondaryButton("Test");
-            test.setTextSize(14);
+            ImageButton test = iconButton(
+                    R.drawable.ic_apollo_play,
+                    "Test " + command
+            );
             test.setOnClickListener(v ->
                     sendCommandFromBrowser(test, learnerEntity, deviceId, command)
             );
 
             LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(
-                    dp(82),
-                    LinearLayout.LayoutParams.WRAP_CONTENT
+                    dp(52),
+                    dp(48)
             );
-            testLp.setMargins(0, 0, dp(6), 0);
+            testLp.setMargins(0, 0, dp(8), 0);
             row.addView(test, testLp);
 
-            Button menu = secondaryButton("⋮");
-            menu.setTextSize(20);
-            menu.setOnClickListener(v ->
-                    showCommandMenu(menu, learnerEntity, deviceId, command)
+            ImageButton delete = iconButton(
+                    R.drawable.ic_apollo_delete,
+                    "Delete " + command
+            );
+            delete.setOnClickListener(v ->
+                    showDeleteCommandDialog(learnerEntity, deviceId, command)
             );
 
-            LinearLayout.LayoutParams menuLp = new LinearLayout.LayoutParams(
-                    dp(54),
-                    LinearLayout.LayoutParams.WRAP_CONTENT
+            LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(
+                    dp(52),
+                    dp(48)
             );
-            row.addView(menu, menuLp);
+            row.addView(delete, deleteLp);
 
             commandList.addView(row);
             shown++;
@@ -837,33 +868,6 @@ public class MainActivity extends Activity {
             empty.setTextColor(Color.rgb(145, 151, 163));
             commandList.addView(empty);
         }
-    }
-
-    private void showCommandMenu(
-            View anchor,
-            String storedRemote,
-            String device,
-            String command
-    ) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add("Test");
-        popup.getMenu().add("Delete");
-
-        popup.setOnMenuItemClickListener(item -> {
-            String title = item.getTitle().toString();
-            if ("Test".equals(title)) {
-                Button temp = secondaryButton("Test");
-                sendCommandFromBrowser(temp, storedRemote, device, command);
-                return true;
-            }
-            if ("Delete".equals(title)) {
-                showDeleteCommandDialog(storedRemote, device, command);
-                return true;
-            }
-            return false;
-        });
-
-        popup.show();
     }
 
     private void showDeleteCommandDialog(
@@ -916,7 +920,7 @@ public class MainActivity extends Activity {
     }
 
     private void sendCommandFromBrowser(
-            Button button,
+            View button,
             String storedRemote,
             String device,
             String command
@@ -936,8 +940,7 @@ public class MainActivity extends Activity {
         final String key = apiKey.getText().toString().trim();
 
         button.setEnabled(false);
-        String originalLabel = button.getText().toString();
-        button.setText("Sending…");
+        button.setAlpha(0.55f);
         learnStatus.setText("Sending " + command + "…");
 
         new Thread(() -> {
@@ -951,16 +954,13 @@ public class MainActivity extends Activity {
 
                 handler.post(() -> {
                     learnStatus.setText("✓ Sent  " + device + " · " + command);
-                    button.setText("✓ Sent");
-                    button.postDelayed(() -> {
-                        button.setText(originalLabel);
-                        button.setEnabled(true);
-                    }, 900);
+                    button.setAlpha(1f);
+                    button.setEnabled(true);
                 });
             } catch (Exception e) {
                 handler.post(() -> {
                     learnStatus.setText("Test failed: " + e.getMessage());
-                    button.setText("Retry");
+                    button.setAlpha(1f);
                     button.setEnabled(true);
                 });
             }
@@ -1250,6 +1250,42 @@ public class MainActivity extends Activity {
             e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         }
         return e;
+    }
+
+    private ImageButton iconButton(int drawableRes, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(drawableRes);
+        button.setContentDescription(description);
+        button.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        GradientDrawable content = new GradientDrawable();
+        content.setColor(Color.rgb(44, 48, 57));
+        content.setCornerRadius(dp(14));
+
+        RippleDrawable ripple = new RippleDrawable(
+                ColorStateList.valueOf(Color.argb(70, 255, 255, 255)),
+                content,
+                null
+        );
+        button.setBackground(ripple);
+
+        button.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    view.setScaleX(0.96f);
+                    view.setScaleY(0.96f);
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(90).start();
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        });
+
+        return button;
     }
 
     private Button primaryButton(String label) {
