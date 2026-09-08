@@ -3,6 +3,9 @@ package com.apollo.avairbridge;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
@@ -21,6 +24,24 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
     public static final String ACTION_KEY_EVENT = "com.apollo.avairbridge.GLOBAL_KEY_EVENT";
 
     private static final String TAG = "ApolloGlobalKeys";
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean volumeKeyHeld = false;
+    private int lockedMediaVolume = -1;
+
+    private final Runnable volumeGuard = new Runnable() {
+        @Override
+        public void run() {
+            if (!volumeKeyHeld || lockedMediaVolume < 0) return;
+
+            AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (audio != null
+                    && audio.getStreamVolume(AudioManager.STREAM_MUSIC) != lockedMediaVolume) {
+                audio.setStreamVolume(AudioManager.STREAM_MUSIC, lockedMediaVolume, 0);
+            }
+
+            mainHandler.postDelayed(this, 35);
+        }
+    };
 
     @Override
     protected void onServiceConnected() {
@@ -77,11 +98,39 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
         }
 
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (!volumeKeyHeld) {
+                AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+                lockedMediaVolume = audio == null
+                        ? -1
+                        : audio.getStreamVolume(AudioManager.STREAM_MUSIC);
+
+                volumeKeyHeld = true;
+                mainHandler.removeCallbacks(volumeGuard);
+                mainHandler.post(volumeGuard);
+            }
+
             String command = keyCode == KeyEvent.KEYCODE_VOLUME_UP
                     ? "volume_up"
                     : "volume_down";
 
             sendApolloCommandAsync(prefs, remote, device, command);
+
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            volumeKeyHeld = false;
+            mainHandler.removeCallbacks(volumeGuard);
+
+            final int restoreVolume = lockedMediaVolume;
+            lockedMediaVolume = -1;
+
+            if (restoreVolume >= 0) {
+                mainHandler.postDelayed(() -> {
+                    AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+                    if (audio != null
+                            && audio.getStreamVolume(AudioManager.STREAM_MUSIC) != restoreVolume) {
+                        audio.setStreamVolume(AudioManager.STREAM_MUSIC, restoreVolume, 0);
+                    }
+                }, 80);
+            }
         }
 
         return true;
@@ -191,11 +240,18 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
 
     @Override
     public void onInterrupt() {
+        volumeKeyHeld = false;
+        lockedMediaVolume = -1;
+        mainHandler.removeCallbacks(volumeGuard);
         Log.w(TAG, "Accessibility service interrupted");
     }
 
     @Override
     public boolean onUnbind(android.content.Intent intent) {
+        volumeKeyHeld = false;
+        lockedMediaVolume = -1;
+        mainHandler.removeCallbacks(volumeGuard);
+
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putBoolean("global_key_service_connected", false)
