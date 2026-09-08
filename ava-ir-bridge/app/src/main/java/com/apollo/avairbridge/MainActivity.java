@@ -15,6 +15,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -108,8 +109,7 @@ public class MainActivity extends Activity {
         root.addView(learnerCard);
         learnerCard.addView(sectionTitle("Learner"));
         learnerSpinner = new Spinner(this);
-        learnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, learnerLabels);
-        learnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        learnerAdapter = readableSpinnerAdapter(learnerLabels);
         learnerSpinner.setAdapter(learnerAdapter);
         learnerCard.addView(learnerSpinner);
 
@@ -121,20 +121,49 @@ public class MainActivity extends Activity {
         root.addView(deviceCard);
         deviceCard.addView(sectionTitle("Devices"));
         deviceSpinner = new Spinner(this);
-        deviceAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, deviceLabels);
-        deviceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        deviceAdapter = readableSpinnerAdapter(deviceLabels);
         deviceSpinner.setAdapter(deviceAdapter);
         deviceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            private boolean handlingAction = false;
+
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (handlingAction) return;
+
+                String selected = selectedDeviceId();
+                if ("__create_new__".equals(selected)) {
+                    handlingAction = true;
+                    showCreateDeviceDialog(() -> {
+                        handlingAction = false;
+                        loadDevices();
+                    });
+                    return;
+                }
+
+                if ("__add_existing__".equals(selected)) {
+                    handlingAction = true;
+                    showAddExistingDeviceDialog(() -> {
+                        handlingAction = false;
+                        loadDevices();
+                    });
+                    return;
+                }
+
+                prefs.edit().putString("preferred_device", selected).apply();
                 renderCommands();
             }
+
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
         });
         deviceCard.addView(deviceSpinner);
 
-        Button addExisting = secondaryButton("+ Add existing device");
-        addExisting.setOnClickListener(v -> showAddExistingDeviceDialog());
-        deviceCard.addView(addExisting);
+        TextView deviceHelp = text(
+                "Choose a device, or create/register one from the bottom of this list.",
+                13,
+                false
+        );
+        deviceHelp.setTextColor(Color.rgb(145, 151, 163));
+        deviceHelp.setPadding(0, dp(8), 0, 0);
+        deviceCard.addView(deviceHelp);
 
         commandList = new LinearLayout(this);
         commandList.setOrientation(LinearLayout.VERTICAL);
@@ -261,17 +290,37 @@ public class MainActivity extends Activity {
                     ids.add(item.getString("id"));
                     labels.add(item.optString("name", item.getString("id")));
                 }
+
+                ids.add("__create_new__");
+                labels.add("＋ Create new device");
+                ids.add("__add_existing__");
+                labels.add("＋ Add existing BroadLink device");
+
                 handler.post(() -> {
                     String previous = selectedDeviceId();
+                    if ("__create_new__".equals(previous) || "__add_existing__".equals(previous)) {
+                        previous = "";
+                    }
                     deviceIds.clear();
                     deviceLabels.clear();
                     deviceIds.addAll(ids);
                     deviceLabels.addAll(labels);
                     deviceAdapter.notifyDataSetChanged();
+                    String wanted = prefs.getString("preferred_device", previous);
+                    boolean selected = false;
                     for (int i = 0; i < deviceIds.size(); i++) {
-                        if (deviceIds.get(i).equals(previous)) {
+                        if (deviceIds.get(i).equals(wanted)) {
                             deviceSpinner.setSelection(i);
+                            selected = true;
                             break;
+                        }
+                    }
+                    if (!selected) {
+                        for (int i = 0; i < deviceIds.size(); i++) {
+                            if (!deviceIds.get(i).startsWith("__")) {
+                                deviceSpinner.setSelection(i);
+                                break;
+                            }
                         }
                     }
                     renderCommands();
@@ -282,22 +331,61 @@ public class MainActivity extends Activity {
         }, "apollo-devices").start();
     }
 
-    private void showAddExistingDeviceDialog() {
-        EditText input = new EditText(this);
-        input.setHint("Existing BroadLink device name");
-        input.setSingleLine(true);
+    private void showAddExistingDeviceDialog(Runnable onFinished) {
+        EditText input = field("Existing BroadLink device ID", false);
 
         new AlertDialog.Builder(this)
                 .setTitle("Add existing device")
-                .setMessage("Use the same device name already stored in Home Assistant. This does not relearn or modify its existing commands.")
+                .setMessage(
+                        "Enter the exact BroadLink device name already used in Home Assistant. "
+                                + "Apollo will register it without changing existing learned commands."
+                )
                 .setView(input)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Add", (dialog, which) -> addExistingDevice(input.getText().toString().trim()))
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    if (onFinished != null) onFinished.run();
+                })
+                .setPositiveButton("Add", (dialog, which) -> {
+                    String device = input.getText().toString().trim();
+                    if (device.isEmpty()) {
+                        if (onFinished != null) onFinished.run();
+                        return;
+                    }
+                    addDevice(device, null, onFinished);
+                })
                 .show();
     }
 
-    private void addExistingDevice(String device) {
-        if (device.isEmpty()) return;
+    private void showCreateDeviceDialog(Runnable onFinished) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), 0, dp(20), 0);
+
+        EditText idField = field("Device ID  (example: bedroom_soundbar)", false);
+        EditText nameField = field("Friendly name  (example: Bedroom Soundbar)", false);
+        box.addView(idField);
+        box.addView(nameField);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Create new device")
+                .setMessage("Create a new Apollo device, then learn its first command.")
+                .setView(box)
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    if (onFinished != null) onFinished.run();
+                })
+                .setPositiveButton("Create", (dialog, which) -> {
+                    String device = idField.getText().toString().trim();
+                    String name = nameField.getText().toString().trim();
+                    if (device.isEmpty()) {
+                        learnStatus.setText("Device ID is required.");
+                        if (onFinished != null) onFinished.run();
+                        return;
+                    }
+                    addDevice(device, name.isEmpty() ? null : name, onFinished);
+                })
+                .show();
+    }
+
+    private void addDevice(String device, String displayName, Runnable onFinished) {
         final String base = cleanBaseUrl(serverUrl.getText().toString());
         final String key = apiKey.getText().toString().trim();
 
@@ -305,13 +393,22 @@ public class MainActivity extends Activity {
             try {
                 JSONObject body = new JSONObject();
                 body.put("device", device);
+                if (displayName != null && !displayName.isEmpty()) {
+                    body.put("name", displayName);
+                }
+
                 requestJson("POST", base + "/api/devices", key, body.toString());
+
                 handler.post(() -> {
-                    learnStatus.setText("Added " + device);
-                    loadDevices();
+                    prefs.edit().putString("preferred_device", device).apply();
+                    learnStatus.setText("✓ Device ready: " + (displayName == null ? device : displayName));
+                    if (onFinished != null) onFinished.run();
                 });
             } catch (Exception e) {
-                handler.post(() -> learnStatus.setText("Could not add device: " + e.getMessage()));
+                handler.post(() -> {
+                    learnStatus.setText("Could not add device: " + e.getMessage());
+                    if (onFinished != null) onFinished.run();
+                });
             }
         }, "apollo-add-device").start();
     }
@@ -472,6 +569,38 @@ public class MainActivity extends Activity {
     private String selectedDeviceId() {
         int p = deviceSpinner == null ? -1 : deviceSpinner.getSelectedItemPosition();
         return p >= 0 && p < deviceIds.size() ? deviceIds.get(p) : "";
+    }
+
+    private ArrayAdapter<String> readableSpinnerAdapter(List<String> items) {
+        return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                styleSpinnerText(view, false);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                styleSpinnerText(view, true);
+                return view;
+            }
+        };
+    }
+
+    private void styleSpinnerText(TextView view, boolean dropdown) {
+        view.setTextColor(Color.WHITE);
+        view.setTextSize(16);
+        view.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(dropdown ? Color.rgb(35, 39, 47) : Color.rgb(31, 34, 41));
+        bg.setCornerRadius(dp(12));
+        if (!dropdown) {
+            bg.setStroke(dp(1), Color.rgb(55, 60, 70));
+        }
+        view.setBackground(bg);
     }
 
     private JSONObject requestJson(String method, String url, String authToken, String body) throws Exception {
