@@ -610,6 +610,30 @@ def _watchlist_context(row, media_type, watchlisted=None):
     )]
 
 
+
+def _source_session_matches_item(session, row, media_type, season=0, episode=0):
+    # Stream-session actions belong only to the matching playable item.
+    if not session:
+        return False
+
+    item_imdb = str(row.get("imdb_id") or "").strip().lower()
+    session_imdb = str(session.get("imdb_id") or "").strip().lower()
+    if not item_imdb or not session_imdb or item_imdb != session_imdb:
+        return False
+
+    normalized = str(media_type or "").strip().lower()
+    item_episode = int(episode or 0)
+    session_episode = int(session.get("episode") or 0)
+
+    is_episode = normalized in ("series", "episode") or item_episode > 0
+    if is_episode:
+        return (
+            int(session.get("season") or 0) == int(season or 0)
+            and session_episode == item_episode
+        )
+
+    return session_episode == 0
+
 def _play_context(row, media_type, season=0, episode=0, title="", show_title=""):
     remote = _remote_params(
         row,
@@ -647,7 +671,14 @@ def _play_context(row, media_type, season=0, episode=0, title="", show_title="")
                 f"RunPlugin({url('play_local', media_id=media_id, canonical_id=row.get('canonical_id') or '', imdb=row.get('imdb_id') or '', media_type=media_type, season=int(season or 0), episode=int(episode or 0), title=title or row.get('title') or 'Unknown', show_title=show_title or row.get('series_title') or row.get('show_title') or '')})",
             ),
         )
-    if source_session.load():
+    session = source_session.load()
+    if _source_session_matches_item(
+        session,
+        row,
+        media_type,
+        season=season,
+        episode=episode,
+    ):
         actions.extend([
             ("Current Stream Info", f"RunPlugin({url('current_stream_info')})"),
             ("Try Next Stream", f"RunPlugin({url('try_next')})"),
