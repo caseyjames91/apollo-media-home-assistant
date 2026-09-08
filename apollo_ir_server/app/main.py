@@ -68,12 +68,14 @@ def register_device(device: str, display_name: str | None = None) -> dict[str, A
             "id": device,
             "name": display_name or device,
             "commands": {},
+            "room": None,
             "created_at": now_iso(),
             "updated_at": now_iso(),
         },
     )
     if display_name:
         entry["name"] = display_name
+    entry.setdefault("room", None)
     entry["updated_at"] = now_iso()
     save_registry(registry)
     return entry
@@ -93,6 +95,7 @@ def register_command(
             "id": device,
             "name": device,
             "commands": {},
+            "room": None,
             "created_at": now_iso(),
             "updated_at": now_iso(),
         },
@@ -102,6 +105,7 @@ def register_command(
         "type": command_type,
         "learner_entity_id": learner_entity_id,
         "learned_at": now_iso(),
+        "last_used_at": None,
     }
     entry["updated_at"] = now_iso()
     save_registry(registry)
@@ -124,6 +128,23 @@ class SendRequest(BaseModel):
 class DeviceRequest(BaseModel):
     device: str = Field(min_length=1, max_length=128)
     name: str | None = Field(default=None, max_length=128)
+
+
+class CommandDeleteRequest(BaseModel):
+    remote_entity_id: str
+    device: str = Field(min_length=1, max_length=128)
+    command: str = Field(min_length=1, max_length=128)
+
+
+class DeviceDeleteRequest(BaseModel):
+    remote_entity_id: str | None = None
+    device: str = Field(min_length=1, max_length=128)
+    delete_commands: bool = False
+
+
+class DeviceRoomRequest(BaseModel):
+    device: str = Field(min_length=1, max_length=128)
+    room: str | None = Field(default=None, max_length=128)
 
 
 async def run_learning_job(job_id: str, req: LearnRequest) -> None:
@@ -320,9 +341,131 @@ async def send_command(
             detail=f"Home Assistant send failed: {response.status_code} {response.text}",
         )
 
+    registry = load_registry()
+    device_entry = registry["devices"].get(req.device)
+    if device_entry:
+        command_entry = (device_entry.get("commands") or {}).get(req.command)
+        if command_entry:
+            command_entry["last_used_at"] = now_iso()
+            device_entry["updated_at"] = now_iso()
+            save_registry(registry)
+
     return {
         "ok": True,
         "remote_entity_id": req.remote_entity_id,
         "device": req.device,
         "command": req.command,
     }
+
+
+@app.post("/api/commands/delete")
+async def delete_command(
+    req: CommandDeleteRequest,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+
+    if not req.remote_entity_id.startswith("remote."):
+        raise HTTPException(status_code=400, detail="remote_entity_id must be remote.*")
+
+    payload = {
+        "entity_id": req.remote_entity_id,
+        "device": req.device,
+        "command": req.command,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"{HA_URL}/api/services/remote/delete_command",
+            headers=ha_headers(),
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Home Assistant delete failed: {response.status_code} {response.text}",
+        )
+
+    registry = load_registry()
+    device_entry = registry["devices"].get(req.device)
+    if device_entry:
+        commands = device_entry.get("commands") or {}
+        commands.pop(req.command, None)
+        device_entry["commands"] = commands
+        device_entry["updated_at"] = now_iso()
+        save_registry(registry)
+
+    return {"ok": True, "device": req.device, "command": req.command}
+
+
+@app.post("/api/devices/delete")
+async def delete_device(
+    req: DeviceDeleteRequest,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+
+    registry = load_registry()
+    device_entry = registry["devices"].get(req.device)
+    if not device_entry:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    commands = list((device_entry.get("commands") or {}).keys())
+
+    if commands and not req.delete_commands:
+        raise HTTPException(
+            status_code=409,
+            detail="Device still has commands. Set delete_commands=true to remove them first.",
+        )
+
+    if commands:
+        if not req.remote_entity_id or not req.remote_entity_id.startswith("remote."):
+            raise HTTPException(
+                status_code=400,
+                detail="remote_entity_id is required when deleting a device with commands",
+            )
+
+        payload = {
+            "entity_id": req.remote_entity_id,
+            "device": req.device,
+            "command": commands,
+        }
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{HA_URL}/api/services/remote/delete_command",
+                headers=ha_headers(),
+                json=payload,
+            )
+
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Home Assistant device cleanup failed: {response.status_code} {response.text}",
+            )
+
+    registry["devices"].pop(req.device, None)
+    save_registry(registry)
+
+    return {"ok": True, "device": req.device, "deleted_commands": commands}
+
+
+@app.post("/api/devices/room")
+async def set_device_room(
+    req: DeviceRoomRequest,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+
+    registry = load_registry()
+    device_entry = registry["devices"].get(req.device)
+    if not device_entry:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    room = (req.room or "").strip() or None
+    device_entry["room"] = room
+    device_entry["updated_at"] = now_iso()
+    save_registry(registry)
+
+    return {"ok": True, "device": req.device, "room": room}
