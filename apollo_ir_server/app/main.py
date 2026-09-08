@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import json
 import os
+from pathlib import Path
 import uuid
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 APP_VERSION = os.environ.get("APOLLO_IR_VERSION", "dev")
 HA_URL = os.environ.get("HOME_ASSISTANT_URL", "http://supervisor/core").rstrip("/")
 HA_TOKEN = os.environ.get("HOME_ASSISTANT_TOKEN", "")
 API_KEY = os.environ.get("APOLLO_IR_API_KEY", "")
+REGISTRY_PATH = Path("/config/devices.json")
 
 app = FastAPI(title="Apollo IR Server", version=APP_VERSION)
 jobs: dict[str, dict[str, Any]] = {}
@@ -37,6 +40,67 @@ def ha_headers() -> dict[str, str]:
     }
 
 
+def load_registry() -> dict[str, Any]:
+    if not REGISTRY_PATH.exists():
+        return {"devices": {}}
+    try:
+        data = json.loads(REGISTRY_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"devices": {}}
+    if not isinstance(data, dict) or not isinstance(data.get("devices"), dict):
+        return {"devices": {}}
+    return data
+
+
+def save_registry(data: dict[str, Any]) -> None:
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = REGISTRY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    tmp.replace(REGISTRY_PATH)
+
+
+def register_device(device: str, display_name: str | None = None) -> dict[str, Any]:
+    registry = load_registry()
+    devices = registry["devices"]
+    entry = devices.setdefault(
+        device,
+        {
+            "id": device,
+            "name": display_name or device,
+            "commands": {},
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        },
+    )
+    if display_name:
+        entry["name"] = display_name
+    entry["updated_at"] = now_iso()
+    save_registry(registry)
+    return entry
+
+
+def register_command(device: str, command: str, command_type: str) -> None:
+    registry = load_registry()
+    devices = registry["devices"]
+    entry = devices.setdefault(
+        device,
+        {
+            "id": device,
+            "name": device,
+            "commands": {},
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        },
+    )
+    entry.setdefault("commands", {})[command] = {
+        "name": command,
+        "type": command_type,
+        "learned_at": now_iso(),
+    }
+    entry["updated_at"] = now_iso()
+    save_registry(registry)
+
+
 class LearnRequest(BaseModel):
     learner_entity_id: str
     device: str = Field(min_length=1, max_length=128)
@@ -49,6 +113,11 @@ class SendRequest(BaseModel):
     remote_entity_id: str
     device: str = Field(min_length=1, max_length=128)
     command: str = Field(min_length=1, max_length=128)
+
+
+class DeviceRequest(BaseModel):
+    device: str = Field(min_length=1, max_length=128)
+    name: str | None = Field(default=None, max_length=128)
 
 
 async def run_learning_job(job_id: str, req: LearnRequest) -> None:
@@ -95,6 +164,7 @@ async def run_learning_job(job_id: str, req: LearnRequest) -> None:
         job["updated_at"] = now_iso()
         return
 
+    register_command(req.device, req.command, req.command_type)
     job["state"] = "learned"
     job["message"] = f"{req.device} / {req.command} learned successfully."
     job["updated_at"] = now_iso()
@@ -108,6 +178,7 @@ async def status(x_apollo_ir_key: str | None = Header(default=None)) -> dict[str
         "service": "apollo_ir_server",
         "version": APP_VERSION,
         "ha_backend": True,
+        "device_registry": True,
     }
 
 
@@ -116,10 +187,7 @@ async def learners(x_apollo_ir_key: str | None = Header(default=None)) -> dict[s
     require_api_key(x_apollo_ir_key)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.get(
-            f"{HA_URL}/api/states",
-            headers=ha_headers(),
-        )
+        response = await client.get(f"{HA_URL}/api/states", headers=ha_headers())
     response.raise_for_status()
 
     result = []
@@ -140,6 +208,25 @@ async def learners(x_apollo_ir_key: str | None = Header(default=None)) -> dict[s
     return {"learners": result}
 
 
+@app.get("/api/devices")
+async def devices(x_apollo_ir_key: str | None = Header(default=None)) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+    registry = load_registry()
+    result = list(registry["devices"].values())
+    result.sort(key=lambda item: str(item.get("name", item.get("id", ""))).lower())
+    return {"devices": result}
+
+
+@app.post("/api/devices")
+async def add_device(
+    req: DeviceRequest,
+    x_apollo_ir_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    require_api_key(x_apollo_ir_key)
+    entry = register_device(req.device.strip(), (req.name or "").strip() or None)
+    return {"ok": True, "device": entry}
+
+
 @app.post("/api/learn", status_code=202)
 async def learn(
     req: LearnRequest,
@@ -152,7 +239,6 @@ async def learn(
     if not req.learner_entity_id.startswith("remote."):
         raise HTTPException(status_code=400, detail="learner_entity_id must be remote.*")
 
-    # Validate that the selected HA entity exists before creating a job.
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
             f"{HA_URL}/api/states/{req.learner_entity_id}",
@@ -161,6 +247,8 @@ async def learn(
     if response.status_code == 404:
         raise HTTPException(status_code=400, detail="Unknown learner entity")
     response.raise_for_status()
+
+    register_device(req.device)
 
     job_id = uuid.uuid4().hex
     created = now_iso()
