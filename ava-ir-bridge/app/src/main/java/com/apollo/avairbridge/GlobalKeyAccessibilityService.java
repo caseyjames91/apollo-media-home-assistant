@@ -48,11 +48,10 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
                     ? "volume_up"
                     : "volume_down";
 
-            sendApolloCommandAsync(heldPrefs, heldRemote, heldDevice, command);
+            dispatchVolumeCommand(heldPrefs, heldRemote, heldDevice, command);
 
-            // We synthesize repeat ourselves rather than depending on AVA firmware
-            // to deliver Android repeat key events consistently.
-            mainHandler.postDelayed(this, 170);
+            // Local IR is fast enough to behave like a normal handheld remote.
+            mainHandler.postDelayed(this, 105);
         }
     };
 
@@ -147,10 +146,10 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
                         : "volume_down";
 
                 // Immediate first step, like a normal remote.
-                sendApolloCommandAsync(prefs, remote, device, command);
+                dispatchVolumeCommand(prefs, remote, device, command);
 
-                // Then begin our own hold-repeat after a short initial delay.
-                mainHandler.postDelayed(volumeRepeat, 320);
+                // Start local hold-repeat quickly after the initial press.
+                mainHandler.postDelayed(volumeRepeat, 280);
             } else if (heldKeyCode != keyCode) {
                 // Defensive: if AVA changes direction without a clean UP event,
                 // switch the held direction rather than starting a second loop.
@@ -183,6 +182,35 @@ public class GlobalKeyAccessibilityService extends AccessibilityService {
         }
 
         return true;
+    }
+
+    private void dispatchVolumeCommand(
+            SharedPreferences prefs,
+            String remote,
+            String device,
+            String command
+    ) {
+        String codeKey = "local_ir_" + command + "_code";
+        String code = prefs.getString(codeKey, "");
+        int carrier = prefs.getInt("local_ir_carrier_hz", 38000);
+        boolean localEnabled = prefs.getBoolean("local_ir_volume_enabled", false);
+
+        if (localEnabled && !code.isEmpty()) {
+            try {
+                IrBridgeService.transmitBroadlink(this, code, carrier);
+                prefs.edit()
+                        .putString("global_volume_last_command", command)
+                        .putBoolean("global_volume_last_ok", true)
+                        .putLong("global_volume_last_time", System.currentTimeMillis())
+                        .apply();
+                Log.i(TAG, "Local IR volume " + command + " transmitted");
+                return;
+            } catch (Exception e) {
+                Log.e(TAG, "Local IR volume failed; falling back to Apollo server", e);
+            }
+        }
+
+        sendApolloCommandAsync(prefs, remote, device, command);
     }
 
     private void restoreMediaVolume(int volume, long delayMs) {

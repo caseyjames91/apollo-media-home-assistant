@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         globalVolumeTargetStatus.setPadding(0, 0, 0, dp(10));
         keyCard.addView(globalVolumeTargetStatus);
 
-        Button useSelectedForVolume = primaryButton("Use selected device for volume");
+        Button useSelectedForVolume = primaryButton("Import selected device for local volume");
         useSelectedForVolume.setOnClickListener(v -> configureSelectedDeviceForGlobalVolume());
         keyCard.addView(useSelectedForVolume);
 
@@ -177,8 +177,13 @@ public class MainActivity extends Activity {
         disableGlobalVolume.setOnClickListener(v -> {
             prefs.edit()
                     .putBoolean("global_volume_enabled", false)
+                    .putBoolean("local_ir_volume_enabled", false)
                     .remove("global_volume_device")
                     .remove("global_volume_remote")
+                    .remove("local_ir_volume_device")
+                    .remove("local_ir_volume_up_code")
+                    .remove("local_ir_volume_down_code")
+                    .remove("local_ir_carrier_hz")
                     .apply();
             refreshGlobalKeyStatus();
         });
@@ -320,8 +325,8 @@ public class MainActivity extends Activity {
     }
 
     private void configureSelectedDeviceForGlobalVolume() {
-        String device = selectedDeviceId();
-        String remote = selectedLearnerId();
+        final String device = selectedDeviceId();
+        final String remote = selectedLearnerId();
 
         if (device.isEmpty()) {
             learnStatus.setText("Select the TV/soundbar device first.");
@@ -350,14 +355,113 @@ public class MainActivity extends Activity {
             return;
         }
 
-        prefs.edit()
-                .putBoolean("global_volume_enabled", true)
-                .putString("global_volume_device", device)
-                .putString("global_volume_remote", remote)
-                .apply();
+        saveSettings();
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
 
-        learnStatus.setText("✓ Hardware volume target set: " + device);
-        refreshGlobalKeyStatus();
+        learnStatus.setText("Importing volume IR codes to this AVA…");
+
+        new Thread(() -> {
+            try {
+                JSONObject up = getJson(
+                        base + "/api/raw-code?device="
+                                + java.net.URLEncoder.encode(device, "UTF-8")
+                                + "&command=volume_up",
+                        key
+                );
+
+                JSONObject down = getJson(
+                        base + "/api/raw-code?device="
+                                + java.net.URLEncoder.encode(device, "UTF-8")
+                                + "&command=volume_down",
+                        key
+                );
+
+                String upCode = up.optString("code", "");
+                String downCode = down.optString("code", "");
+                int upCarrier = up.optInt("carrier_hz", 38000);
+                int downCarrier = down.optInt("carrier_hz", 38000);
+
+                if (upCode.isEmpty() || downCode.isEmpty()) {
+                    throw new IllegalStateException("Server did not return both raw IR codes.");
+                }
+                if (upCarrier != downCarrier) {
+                    throw new IllegalStateException(
+                            "Volume-up and volume-down carrier frequencies do not match."
+                    );
+                }
+
+                // Validate both codes locally before enabling them.
+                int[] upPattern = IrBridgeService.decodeBroadlinkIr(upCode);
+                int[] downPattern = IrBridgeService.decodeBroadlinkIr(downCode);
+                if (upPattern.length < 2 || downPattern.length < 2) {
+                    throw new IllegalStateException("Imported IR code did not decode correctly.");
+                }
+
+                prefs.edit()
+                        .putBoolean("global_volume_enabled", true)
+                        .putBoolean("local_ir_volume_enabled", true)
+                        .putString("global_volume_device", device)
+                        .putString("global_volume_remote", remote)
+                        .putString("local_ir_volume_device", device)
+                        .putString("local_ir_volume_up_code", upCode)
+                        .putString("local_ir_volume_down_code", downCode)
+                        .putInt("local_ir_carrier_hz", upCarrier)
+                        .apply();
+
+                handler.post(() -> {
+                    learnStatus.setText("✓ Local AVA IR volume ready: " + device);
+                    refreshGlobalKeyStatus();
+                });
+
+            } catch (Exception e) {
+                handler.post(() -> learnStatus.setText(
+                        "Local IR import failed: " + e.getMessage()
+                ));
+            }
+        }, "apollo-local-volume-import").start();
+    }
+
+    private JSONObject getJson(String url, String authToken) throws Exception {
+        HttpURLConnection connection =
+                (HttpURLConnection) new URL(url).openConnection();
+
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(3000);
+        connection.setReadTimeout(5000);
+        connection.setRequestProperty("Accept", "application/json");
+
+        if (authToken != null && !authToken.isEmpty()) {
+            connection.setRequestProperty("X-Apollo-IR-Key", authToken);
+        }
+
+        int code = connection.getResponseCode();
+
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(
+                        code >= 400
+                                ? connection.getErrorStream()
+                                : connection.getInputStream(),
+                        StandardCharsets.UTF_8
+                )
+        );
+
+        StringBuilder text = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            text.append(line);
+        }
+
+        reader.close();
+        connection.disconnect();
+
+        if (code >= 400) {
+            throw new IllegalStateException(
+                    "Apollo IR Server returned HTTP " + code + ": " + text
+            );
+        }
+
+        return new JSONObject(text.toString());
     }
 
     private boolean isGlobalKeyServiceEnabled() {
@@ -401,8 +505,10 @@ public class MainActivity extends Activity {
             String target = prefs.getString("global_volume_device", "");
 
             if (volumeEnabled && !target.isEmpty()) {
+                boolean localIr = prefs.getBoolean("local_ir_volume_enabled", false);
                 globalVolumeTargetStatus.setText(
-                        "Volume target: " + target + " · volume_up / volume_down"
+                        "Volume target: " + target
+                                + (localIr ? " · LOCAL AVA IR" : " · Apollo/HA")
                 );
                 globalVolumeTargetStatus.setTextColor(Color.rgb(126, 231, 135));
             } else {
