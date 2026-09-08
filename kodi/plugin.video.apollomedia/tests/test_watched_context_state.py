@@ -15,15 +15,14 @@ class TestWatchedContextState(unittest.TestCase):
         source = (ROOT / "main.py").read_text()
         block = source.split("def _play_context(", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("watched=False", block)
-        self.assertIn("if watched:", block)
-
-        watched_branch = block.split("if watched:", 1)[1].split("else:", 1)[0]
-        unwatched_branch = block.split("else:", 1)[1].split("if row.get", 1)[0]
-
-        self.assertIn('"Apollo: Mark unwatched"', watched_branch)
-        self.assertNotIn('"Apollo: Mark watched"', watched_branch)
-        self.assertIn('"Apollo: Mark watched"', unwatched_branch)
-        self.assertNotIn('"Apollo: Mark unwatched"', unwatched_branch)
+        self.assertIn(
+            '"Apollo: Mark unwatched" if watched else "Apollo: Mark watched"',
+            block,
+        )
+        self.assertIn(
+            "watched='0' if watched else '1'",
+            block,
+        )
 
 
 if __name__ == "__main__":

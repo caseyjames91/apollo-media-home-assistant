@@ -18,9 +18,9 @@ class TestRebuiltApolloContract(unittest.TestCase):
 
     def test_playback_tools_remain_contextual(self):
         main = (ROOT / "main.py").read_text()
-        self.assertIn('"Current Stream Info", f"RunPlugin(', main)
-        self.assertIn('"Try Next Stream", f"RunPlugin(', main)
-        self.assertIn('"Flag Current Stream", f"RunPlugin(', main)
+        self.assertIn('"Apollo: Current Stream Info", f"RunPlugin(', main)
+        self.assertIn('"Apollo: Try Next Stream", f"RunPlugin(', main)
+        self.assertIn('"Apollo: Flag Current Stream", f"RunPlugin(', main)
 
 if __name__ == "__main__":
     unittest.main()

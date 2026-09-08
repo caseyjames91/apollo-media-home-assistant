@@ -37,7 +37,7 @@ class ResumeRetryIntentTests(unittest.TestCase):
     def test_explicit_beginning_overrides_ams_resume(self):
         self.assertIn('p.get("start_from_beginning")', MAIN)
         self.assertIn('resume_mode = "beginning"', MAIN)
-        self.assertIn('"Play from beginning"', MAIN)
+        self.assertIn('"Apollo: Play from beginning"', MAIN)
 
     def test_fixed_resume_uses_resolved_resume_point(self):
         self.assertIn(

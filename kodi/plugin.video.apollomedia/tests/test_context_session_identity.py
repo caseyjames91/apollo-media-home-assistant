@@ -51,9 +51,9 @@ class TestContextSessionIdentity(unittest.TestCase):
         block = source.split("def _play_context(", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("_source_session_matches_item(", block)
         self.assertNotIn("if source_session.load():", block)
-        self.assertIn('"Current Stream Info"', block)
-        self.assertIn('"Try Next Stream"', block)
-        self.assertIn('"Flag Current Stream"', block)
+        self.assertIn('"Apollo: Current Stream Info"', block)
+        self.assertIn('"Apollo: Try Next Stream"', block)
+        self.assertIn('"Apollo: Flag Current Stream"', block)
 
 if __name__ == "__main__":
     unittest.main()
