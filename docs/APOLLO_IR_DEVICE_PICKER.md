@@ -1,13 +1,17 @@
 # AVA device picker
 
-AVA Bridge 0.9.1 simplifies device selection.
+AVA Bridge 0.9.2 keeps the device dropdown limited to actual Apollo-registered
+devices and makes the empty state explicit.
 
-The device dropdown now contains only devices already registered with Apollo IR
-Server. It no longer mixes actions into the device list.
+If the Apollo IR registry contains no devices, the app now shows:
 
-A separate **Create new device** button sits below the dropdown. Creating a
-device accepts a stable device ID and optional friendly name.
+`No Apollo devices yet. Create your first device below.`
 
-The learner and device dropdown rows keep high-contrast white text on a dark
-background, but individual dropdown rows no longer have rounded borders around
-each item.
+Commands learned before Apollo IR Server 0.3.0 are not automatically indexed
+because the earlier server did not persist Apollo device metadata and Apollo
+does not scrape Home Assistant private BroadLink storage.
+
+The separate **Create new device** button remains below the dropdown.
+
+All primary and secondary buttons now use Android ripple feedback plus a subtle
+press-scale animation so taps are visually obvious on the AVA display.

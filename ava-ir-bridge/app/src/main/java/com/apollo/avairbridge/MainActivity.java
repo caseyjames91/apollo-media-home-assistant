@@ -5,9 +5,11 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.hardware.ConsumerIrManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -55,6 +57,7 @@ public class MainActivity extends Activity {
     private TextView connectionStatus;
     private TextView learnStatus;
     private LinearLayout commandList;
+    private TextView deviceEmptyState;
     private ArrayAdapter<String> learnerAdapter;
     private ArrayAdapter<String> deviceAdapter;
     private Button learnIr;
@@ -136,14 +139,14 @@ public class MainActivity extends Activity {
         });
         deviceCard.addView(deviceSpinner);
 
-        TextView deviceHelp = text(
-                "Select one of your existing Apollo devices.",
+        deviceEmptyState = text(
+                "Loading devices…",
                 13,
                 false
         );
-        deviceHelp.setTextColor(Color.rgb(145, 151, 163));
-        deviceHelp.setPadding(0, dp(8), 0, dp(10));
-        deviceCard.addView(deviceHelp);
+        deviceEmptyState.setTextColor(Color.rgb(145, 151, 163));
+        deviceEmptyState.setPadding(0, dp(8), 0, dp(10));
+        deviceCard.addView(deviceEmptyState);
 
         Button createDevice = secondaryButton("＋ Create new device");
         createDevice.setOnClickListener(v -> showCreateDeviceDialog(() -> loadDevices()));
@@ -282,6 +285,18 @@ public class MainActivity extends Activity {
                     deviceIds.addAll(ids);
                     deviceLabels.addAll(labels);
                     deviceAdapter.notifyDataSetChanged();
+
+                    if (deviceIds.isEmpty()) {
+                        deviceEmptyState.setText(
+                                "No Apollo devices yet. Create your first device below. "
+                                        + "Devices learned before Apollo IR Server 0.3.0 are not automatically indexed."
+                        );
+                    } else {
+                        deviceEmptyState.setText(
+                                deviceIds.size() + (deviceIds.size() == 1 ? " device" : " devices") + " available"
+                        );
+                    }
+
                     String wanted = prefs.getString("preferred_device", previous);
                     boolean selected = false;
                     for (int i = 0; i < deviceIds.size(); i++) {
@@ -297,7 +312,10 @@ public class MainActivity extends Activity {
                     renderCommands();
                 });
             } catch (Exception e) {
-                handler.post(() -> learnStatus.setText("Could not load devices: " + e.getMessage()));
+                handler.post(() -> {
+                    deviceEmptyState.setText("Could not load devices: " + e.getMessage());
+                    learnStatus.setText("Could not load devices: " + e.getMessage());
+                });
             }
         }, "apollo-devices").start();
     }
@@ -648,28 +666,49 @@ public class MainActivity extends Activity {
     }
 
     private Button primaryButton(String label) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextSize(16);
-        b.setTextColor(Color.WHITE);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.rgb(80, 96, 230));
-        bg.setCornerRadius(dp(14));
-        b.setBackground(bg);
-        return b;
+        return styledButton(label, Color.rgb(80, 96, 230), Color.argb(90, 255, 255, 255));
     }
 
     private Button secondaryButton(String label) {
+        return styledButton(label, Color.rgb(44, 48, 57), Color.argb(70, 255, 255, 255));
+    }
+
+    private Button styledButton(String label, int backgroundColor, int rippleColor) {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
         b.setTextSize(16);
         b.setTextColor(Color.WHITE);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.rgb(44, 48, 57));
-        bg.setCornerRadius(dp(14));
-        b.setBackground(bg);
+        b.setPadding(dp(14), dp(10), dp(14), dp(10));
+
+        GradientDrawable content = new GradientDrawable();
+        content.setColor(backgroundColor);
+        content.setCornerRadius(dp(14));
+
+        RippleDrawable ripple = new RippleDrawable(
+                ColorStateList.valueOf(rippleColor),
+                content,
+                null
+        );
+        b.setBackground(ripple);
+
+        // Subtle physical press feedback in addition to the ripple.
+        b.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    view.setScaleX(0.98f);
+                    view.setScaleY(0.98f);
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(90).start();
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        });
+
         return b;
     }
 
