@@ -10,12 +10,15 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -24,24 +27,37 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends Activity {
     private static final String PREFS = "apollo_ir_bridge";
-    private static final String DEFAULT_HA_URL = "http://homeassistant.local:8100";
+    private static final String DEFAULT_SERVER_URL = "http://homeassistant.local:8100";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private TextView status;
     private TextView learnStatus;
-    private EditText haUrl;
-    private EditText token;
-    private EditText learner;
+    private TextView selectedLearnerLabel;
+    private EditText serverUrl;
+    private EditText apiKey;
     private EditText deviceName;
     private EditText commandName;
+    private Spinner learnerSpinner;
+    private Button refreshLearners;
     private Button learnIr;
     private Button learnRf;
+    private Button testLast;
+
+    private final List<String> learnerIds = new ArrayList<>();
+    private final List<String> learnerLabels = new ArrayList<>();
+    private ArrayAdapter<String> learnerAdapter;
 
     private SharedPreferences prefs;
+
+    private String lastDevice = "";
+    private String lastCommand = "";
+    private String lastRemote = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,7 +72,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("Apollo AVA Bridge 0.6.0");
+        title.setText("Apollo AVA Bridge 0.7.0");
         title.setTextSize(24);
         root.addView(title);
 
@@ -65,25 +81,44 @@ public class MainActivity extends Activity {
         status.setPadding(0, dp(8), 0, dp(12));
         root.addView(status);
 
-        Button start = new Button(this);
-        start.setText("Start IR Bridge");
-        start.setOnClickListener(v -> startBridge());
-        root.addView(start);
+        addSection(root, "Apollo IR Server");
 
-        addSection(root, "Home Assistant");
-
-        haUrl = addField(root, "Apollo IR Server URL", false);
-        token = addField(root, "Apollo IR API key (optional)", true);
-        learner = addField(root, "BroadLink learner entity", false);
-
-        haUrl.setText(prefs.getString("ha_url", DEFAULT_HA_URL));
-        token.setText(prefs.getString("ha_token", ""));
-        learner.setText(prefs.getString("learner", ""));
+        serverUrl = addField(root, "Apollo IR Server URL", false);
+        apiKey = addField(root, "Apollo IR API key (optional)", true);
+        serverUrl.setText(prefs.getString("server_url",
+                prefs.getString("ha_url", DEFAULT_SERVER_URL)));
+        apiKey.setText(prefs.getString("api_key",
+                prefs.getString("ha_token", "")));
 
         Button save = new Button(this);
-        save.setText("Save Apollo IR Settings");
-        save.setOnClickListener(v -> saveSettings());
+        save.setText("Save Server Settings");
+        save.setOnClickListener(v -> {
+            saveSettings();
+            loadLearners();
+        });
         root.addView(save);
+
+        addSection(root, "IR / RF Learner");
+
+        learnerSpinner = new Spinner(this);
+        learnerAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                learnerLabels
+        );
+        learnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        learnerSpinner.setAdapter(learnerAdapter);
+        root.addView(learnerSpinner);
+
+        selectedLearnerLabel = new TextView(this);
+        selectedLearnerLabel.setText("Loading Home Assistant remote entities…");
+        selectedLearnerLabel.setPadding(0, dp(6), 0, dp(6));
+        root.addView(selectedLearnerLabel);
+
+        refreshLearners = new Button(this);
+        refreshLearners.setText("Refresh Learners");
+        refreshLearners.setOnClickListener(v -> loadLearners());
+        root.addView(refreshLearners);
 
         addSection(root, "Learn a command");
 
@@ -102,21 +137,29 @@ public class MainActivity extends Activity {
 
         learnStatus = new TextView(this);
         learnStatus.setText("Ready.");
-        learnStatus.setTextSize(17);
-        learnStatus.setPadding(0, dp(12), 0, dp(12));
+        learnStatus.setTextSize(18);
+        learnStatus.setPadding(0, dp(14), 0, dp(10));
         root.addView(learnStatus);
+
+        testLast = new Button(this);
+        testLast.setText("Test Last Learned Command");
+        testLast.setEnabled(false);
+        testLast.setVisibility(View.GONE);
+        testLast.setOnClickListener(v -> testLastLearned());
+        root.addView(testLast);
 
         TextView note = new TextView(this);
         note.setText(
-                "Learning is performed by Apollo IR Server through Home Assistant and the selected BroadLink remote. "
-                        + "The AVA is the user interface; Home Assistant remains hidden in the backend."
+                "BroadLink performs learning through Home Assistant. "
+                        + "AVA provides the setup UI and room-local IR emitter."
         );
-        note.setPadding(0, dp(8), 0, dp(12));
+        note.setPadding(0, dp(10), 0, dp(12));
         root.addView(note);
 
         setContentView(scroll);
         startBridge();
         refreshStatus();
+        loadLearners();
     }
 
     private void addSection(LinearLayout root, String text) {
@@ -156,12 +199,88 @@ public class MainActivity extends Activity {
     }
 
     private void saveSettings() {
+        String selected = selectedLearnerId();
         prefs.edit()
-                .putString("ha_url", cleanBaseUrl(haUrl.getText().toString()))
-                .putString("ha_token", token.getText().toString().trim())
-                .putString("learner", learner.getText().toString().trim())
+                .putString("server_url", cleanBaseUrl(serverUrl.getText().toString()))
+                .putString("api_key", apiKey.getText().toString().trim())
+                .putString("learner", selected)
                 .apply();
-        learnStatus.setText("Apollo IR settings saved.");
+    }
+
+    private String selectedLearnerId() {
+        int position = learnerSpinner.getSelectedItemPosition();
+        if (position >= 0 && position < learnerIds.size()) {
+            return learnerIds.get(position);
+        }
+        return "";
+    }
+
+    private void loadLearners() {
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        if (base.isEmpty()) {
+            selectedLearnerLabel.setText("Enter the Apollo IR Server URL first.");
+            return;
+        }
+
+        refreshLearners.setEnabled(false);
+        selectedLearnerLabel.setText("Finding Home Assistant remote entities…");
+
+        new Thread(() -> {
+            try {
+                JSONObject response = requestJson(
+                        "GET",
+                        base + "/api/learners",
+                        key,
+                        null
+                );
+                JSONArray learners = response.getJSONArray("learners");
+
+                List<String> ids = new ArrayList<>();
+                List<String> labels = new ArrayList<>();
+
+                for (int i = 0; i < learners.length(); i++) {
+                    JSONObject item = learners.getJSONObject(i);
+                    String id = item.getString("entity_id");
+                    String name = item.optString("name", id);
+                    String state = item.optString("state", "");
+                    ids.add(id);
+                    labels.add(name + "  (" + id + ")" + ("unavailable".equals(state) ? " — unavailable" : ""));
+                }
+
+                handler.post(() -> {
+                    String wanted = prefs.getString("learner", "");
+                    learnerIds.clear();
+                    learnerLabels.clear();
+                    learnerIds.addAll(ids);
+                    learnerLabels.addAll(labels);
+                    learnerAdapter.notifyDataSetChanged();
+
+                    int select = 0;
+                    for (int i = 0; i < learnerIds.size(); i++) {
+                        if (learnerIds.get(i).equals(wanted)) {
+                            select = i;
+                            break;
+                        }
+                    }
+                    if (!learnerIds.isEmpty()) {
+                        learnerSpinner.setSelection(select);
+                        selectedLearnerLabel.setText(
+                                learnerIds.size() + " remote entities found. Select the BroadLink learner."
+                        );
+                    } else {
+                        selectedLearnerLabel.setText("No remote entities found.");
+                    }
+                    refreshLearners.setEnabled(true);
+                });
+            } catch (Exception e) {
+                handler.post(() -> {
+                    selectedLearnerLabel.setText("Could not load learners: " + e.getMessage());
+                    refreshLearners.setEnabled(true);
+                });
+            }
+        }, "apollo-load-learners").start();
     }
 
     private void setLearning(boolean busy) {
@@ -169,19 +288,22 @@ public class MainActivity extends Activity {
         learnRf.setEnabled(!busy);
         deviceName.setEnabled(!busy);
         commandName.setEnabled(!busy);
+        learnerSpinner.setEnabled(!busy);
+        refreshLearners.setEnabled(!busy);
+        testLast.setEnabled(!busy && !lastCommand.isEmpty());
     }
 
     private void startLearn(String type) {
         saveSettings();
 
-        String base = prefs.getString("ha_url", "").trim();
-        String auth = prefs.getString("ha_token", "").trim();
-        String remote = prefs.getString("learner", "").trim();
+        String base = cleanBaseUrl(serverUrl.getText().toString());
+        String key = apiKey.getText().toString().trim();
+        String remote = selectedLearnerId();
         String device = deviceName.getText().toString().trim();
         String command = commandName.getText().toString().trim();
 
         if (base.isEmpty() || remote.isEmpty()) {
-            learnStatus.setText("Set the Apollo IR Server URL and BroadLink learner first.");
+            learnStatus.setText("Select an Apollo IR Server and learner first.");
             return;
         }
         if (device.isEmpty() || command.isEmpty()) {
@@ -190,6 +312,7 @@ public class MainActivity extends Activity {
         }
 
         setLearning(true);
+        testLast.setVisibility(View.GONE);
         learnStatus.setText(
                 type.equals("rf")
                         ? "Starting RF learning…"
@@ -208,29 +331,34 @@ public class MainActivity extends Activity {
                 JSONObject response = requestJson(
                         "POST",
                         base + "/api/learn",
-                        auth,
+                        key,
                         body.toString()
                 );
 
                 String id = response.getString("id");
-                handler.post(() -> {
-                    learnStatus.setText(
-                            type.equals("rf")
-                                    ? "Learning RF — follow the BroadLink learning sequence and hold/press the original remote button."
-                                    : "Learning IR — point the original remote at the BroadLink and press the button."
-                    );
-                });
-                pollJob(base, auth, id);
+                handler.post(() -> learnStatus.setText(
+                        type.equals("rf")
+                                ? "RF learning active\nFollow the BroadLink RF learning sequence with the original remote."
+                                : "IR learning active\nPoint the original remote at the BroadLink and press the button."
+                ));
+                pollJob(base, key, id, remote, device, command);
             } catch (Exception e) {
                 handler.post(() -> {
-                    learnStatus.setText("Could not start learning: " + e.getMessage());
+                    learnStatus.setText("Could not start learning\n" + e.getMessage());
                     setLearning(false);
                 });
             }
-        }, "apollo-ha-learn").start();
+        }, "apollo-learn").start();
     }
 
-    private void pollJob(String base, String auth, String id) {
+    private void pollJob(
+            String base,
+            String key,
+            String id,
+            String remote,
+            String device,
+            String command
+    ) {
         new Thread(() -> {
             try {
                 while (true) {
@@ -238,7 +366,7 @@ public class MainActivity extends Activity {
                     JSONObject job = requestJson(
                             "GET",
                             base + "/api/jobs/" + id,
-                            auth,
+                            key,
                             null
                     );
 
@@ -247,21 +375,76 @@ public class MainActivity extends Activity {
 
                     handler.post(() -> learnStatus.setText(message));
 
-                    if (state.equals("learned")
-                            || state.equals("timeout")
+                    if (state.equals("learned")) {
+                        lastRemote = remote;
+                        lastDevice = device;
+                        lastCommand = command;
+                        handler.post(() -> {
+                            learnStatus.setText(
+                                    "✓ Learned\n" + device + " · " + command
+                            );
+                            testLast.setVisibility(View.VISIBLE);
+                            testLast.setEnabled(true);
+                            setLearning(false);
+                        });
+                        return;
+                    }
+
+                    if (state.equals("timeout")
                             || state.equals("error")
                             || state.equals("cancelled")) {
-                        handler.post(() -> setLearning(false));
+                        handler.post(() -> {
+                            learnStatus.setText("Learning failed\n" + message);
+                            setLearning(false);
+                        });
                         return;
                     }
                 }
             } catch (Exception e) {
                 handler.post(() -> {
-                    learnStatus.setText("Lost learning status: " + e.getMessage());
+                    learnStatus.setText("Lost learning status\n" + e.getMessage());
                     setLearning(false);
                 });
             }
-        }, "apollo-ha-job").start();
+        }, "apollo-job").start();
+    }
+
+    private void testLastLearned() {
+        if (lastRemote.isEmpty() || lastDevice.isEmpty() || lastCommand.isEmpty()) {
+            return;
+        }
+
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        testLast.setEnabled(false);
+        learnStatus.setText("Sending test command…");
+
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("remote_entity_id", lastRemote);
+                body.put("device", lastDevice);
+                body.put("command", lastCommand);
+
+                requestJson(
+                        "POST",
+                        base + "/api/send",
+                        key,
+                        body.toString()
+                );
+
+                handler.post(() -> {
+                    learnStatus.setText("✓ Test command sent\n" + lastDevice + " · " + lastCommand);
+                    testLast.setEnabled(true);
+                });
+            } catch (Exception e) {
+                handler.post(() -> {
+                    learnStatus.setText("Test failed\n" + e.getMessage());
+                    testLast.setEnabled(true);
+                });
+            }
+        }, "apollo-test-command").start();
     }
 
     private JSONObject requestJson(
@@ -274,9 +457,11 @@ public class MainActivity extends Activity {
         connection.setRequestMethod(method);
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(7000);
+
         if (authToken != null && !authToken.isEmpty()) {
             connection.setRequestProperty("X-Apollo-IR-Key", authToken);
         }
+
         connection.setRequestProperty("Accept", "application/json");
 
         if (body != null) {
@@ -308,7 +493,7 @@ public class MainActivity extends Activity {
         connection.disconnect();
 
         if (code >= 400) {
-            throw new IllegalStateException("HA returned HTTP " + code + ": " + text);
+            throw new IllegalStateException("Server returned HTTP " + code + ": " + text);
         }
 
         return new JSONObject(text.toString());
@@ -329,8 +514,7 @@ public class MainActivity extends Activity {
 
         StringBuilder sb = new StringBuilder();
         sb.append("AVA IR emitter: ").append(emitter ? "READY" : "NOT AVAILABLE").append("\n");
-        sb.append("Bridge: http://0.0.0.0:8765\n");
-        sb.append("Raw IR: POST /ir/raw\n");
+        sb.append("Bridge: port 8765 · raw IR ready");
 
         status.setText(sb.toString());
     }
