@@ -158,6 +158,8 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
     tag.setPlaycount(0)
     tag.setResumePoint(0.0, 0.0)
     watched = False
+    position = 0.0
+    duration = 0.0
 
     try:
         if progress is None:
@@ -187,6 +189,7 @@ def playable_media(row, media_type, label="", season=0, episode=0, show_title=""
             title=title,
             show_title=show_title,
             watched=watched,
+            position=position,
         ),
         replaceItems=True,
     )
@@ -213,6 +216,7 @@ def home():
     folder("Continue Watching", url("continue"))
     folder("Next Up", url("next_up"))
     folder("Watchlist", url("watchlist"))
+    folder("Favorites", url("favorites"))
     folder("Popular Movies", url("discovery", mode="popular", media_type="movie"))
     folder("Popular Shows", url("discovery", mode="popular", media_type="show"))
     folder("Trending Movies", url("discovery", mode="trending", media_type="movie"))
@@ -282,7 +286,7 @@ def library_shows():
                 target,
                 row,
                 imdb,
-                context=_watchlist_context(row, "show"),
+                context=_show_context(row),
             )
     except Exception as exc:
         notify(f"AMS show library failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
@@ -296,7 +300,13 @@ def show(imdb, title):
         for season in seasons:
             label = "Specials" if season == 0 else f"Season {season}"
             sample = next((r for r in rows if int(r.get("season") or 0) == season), {})
-            folder(label, url("season", imdb=imdb, season=season, title=title), sample, imdb)
+            folder(
+                label,
+                url("season", imdb=imdb, season=season, title=title),
+                sample,
+                imdb,
+                context=_season_context(imdb, season),
+            )
     except Exception as exc:
         notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("seasons")
@@ -408,10 +418,31 @@ def watchlist():
                     _canonical_detail_target(row),
                     row,
                     str(row.get("imdb_id") or ""),
-                    context=_watchlist_context(row, "show", watchlisted=True),
+                    context=_show_context(row, watchlisted=True),
                 )
     except Exception as exc:
         notify(f"AMS Watchlist failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+    end("movies")
+
+
+def favorites():
+    try:
+        rows = ams.favorites(ADDON)
+        for row in rows:
+            media_type = str(row.get("media_type") or "").strip().lower()
+            title = str(row.get("title") or "Unknown")
+            if media_type == "movie":
+                playable_media(row, "movie")
+            elif media_type == "show":
+                folder(
+                    title,
+                    _canonical_detail_target(row),
+                    row,
+                    str(row.get("imdb_id") or ""),
+                    context=_show_context(row, favorite=True),
+                )
+    except Exception as exc:
+        notify(f"AMS Favorites failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
     end("movies")
 
 
@@ -448,7 +479,7 @@ def discovery_list(mode, media_type, page=1):
                     _canonical_detail_target(row),
                     row,
                     str(row.get("imdb_id") or ""),
-                    context=_watchlist_context(row, "show"),
+                    context=_show_context(row),
                 )
         if len(rows) >= 20:
             folder("More Results", url("discovery", mode=mode, media_type=media_type, page=page + 1))
@@ -477,7 +508,7 @@ def search(media_type, query="", page=1):
                     _canonical_detail_target(row),
                     row,
                     str(row.get("imdb_id") or ""),
-                    context=_watchlist_context(row, "show"),
+                    context=_show_context(row),
                 )
         if len(rows) >= 20:
             folder("More Results", url("search", media_type=media_type, query=query, page=page + 1))
@@ -520,6 +551,7 @@ def discovery_show(p):
                 ),
                 season_row,
                 imdb,
+                context=_season_context(imdb, season_number),
             )
     except Exception as exc:
         notify(f"AMS seasons failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
@@ -613,6 +645,78 @@ def _watchlist_context(row, media_type, watchlisted=None):
 
 
 
+def _favorite_context(row, media_type, favorite=None):
+    normalized = str(media_type or "").strip().lower()
+    if normalized not in ("movie", "show"):
+        return []
+    media_id = str(row.get("media_id") or row.get("id") or "").strip()
+    if not media_id:
+        return []
+    if favorite is None:
+        try:
+            favorite = ams.favorites_contains(ADDON, media_id)
+        except Exception as exc:
+            xbmc.log(f"[Apollo] Favorite membership rendering failed: {exc}", xbmc.LOGWARNING)
+            return []
+    label = "Apollo: Remove from Favorites" if favorite else "Apollo: Add to Favorites"
+    value = "0" if favorite else "1"
+    return [(label, f"RunPlugin({url('set_favorite', media_id=media_id, favorite=value)})")]
+
+
+def _summary_watched(imdb_id, season=None):
+    imdb_id = str(imdb_id or "").strip().casefold()
+    if not imdb_id:
+        return False
+    try:
+        summary = ams.watched_summary(ADDON)
+    except Exception as exc:
+        xbmc.log(f"[Apollo] watched summary rendering failed: {exc}", xbmc.LOGWARNING)
+        return False
+    key = "series" if season is None else "seasons"
+    for row in summary.get(key) or []:
+        if str(row.get("imdb_id") or "").strip().casefold() != imdb_id:
+            continue
+        if season is not None and int(row.get("season") or 0) != int(season):
+            continue
+        return bool(row.get("watched"))
+    return False
+
+
+def _hierarchy_context(imdb_id, season=None):
+    imdb_id = str(imdb_id or "").strip()
+    if not imdb_id:
+        return []
+    watched = _summary_watched(imdb_id, season)
+    noun = "series" if season is None else "season"
+    label = f"Apollo: Mark {noun} {'unwatched' if watched else 'watched'}"
+    values = {"imdb": imdb_id, "watched": "0" if watched else "1"}
+    if season is not None:
+        values["season"] = int(season)
+    return [(label, f"RunPlugin({url('set_hierarchy_watched', **values)})")]
+
+
+def _show_context(row, watchlisted=None, favorite=None):
+    actions = []
+    actions.extend(_watchlist_context(row, "show", watchlisted=watchlisted))
+    actions.extend(_favorite_context(row, "show", favorite=favorite))
+    actions.extend(_hierarchy_context(row.get("imdb_id")))
+    return actions
+
+
+def _season_context(imdb_id, season):
+    return _hierarchy_context(imdb_id, season)
+
+
+def _episode_navigation_context(row, season):
+    imdb_id = str(row.get("imdb_id") or "").strip()
+    if not imdb_id:
+        return []
+    return [
+        ("Apollo: Go to Series", f"RunPlugin({url('go_series', imdb=imdb_id)})"),
+        ("Apollo: Go to Season", f"RunPlugin({url('go_season', imdb=imdb_id, season=int(season or 0))})"),
+    ]
+
+
 def _source_session_matches_item(session, row, media_type, season=0, episode=0):
     # Stream-session actions belong only to the matching playable item.
     if not session:
@@ -644,6 +748,7 @@ def _play_context(
     title="",
     show_title="",
     watched=False,
+    position=0.0,
 ):
     remote = _remote_params(
         row,
@@ -653,46 +758,45 @@ def _play_context(
         title=title,
         show_title=show_title,
     )
-    actions = [
-        (
-            "Play from beginning",
-            f"RunPlugin({url('play_remote', start_from_beginning='1', **remote)})",
-        ),
-        ("Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})"),
-    ]
-    media_id = str(row.get("media_id") or row.get("id") or "")
+
+    # Logical order: playback -> episode navigation -> profile state -> stream tools.
+    actions = []
+    media_id = str(row.get("media_id") or row.get("id") or "").strip()
+
+    if row.get("available_locally") and media_id:
+        actions.append((
+            "Apollo: Play Locally",
+            f"RunPlugin({url('play_local', media_id=media_id, canonical_id=row.get('canonical_id') or '', imdb=row.get('imdb_id') or '', media_type=media_type, season=int(season or 0), episode=int(episode or 0), title=title or row.get('title') or 'Unknown', show_title=show_title or row.get('series_title') or row.get('show_title') or '')})",
+        ))
+
+    actions.extend([
+        ("Apollo: Play from beginning", f"RunPlugin({url('play_remote', start_from_beginning='1', **remote)})"),
+        ("Apollo: Pick Stream Manually", f"RunPlugin({url('play_remote_choose', **remote)})"),
+    ])
+
+    normalized = str(media_type or "").strip().lower()
+    if normalized in ("series", "episode") or int(episode or 0) > 0:
+        actions.extend(_episode_navigation_context(row, season))
+
     if media_id:
         actions.extend(_watchlist_context(row, media_type))
-        if watched:
+        actions.extend(_favorite_context(row, media_type))
+        actions.append((
+            "Apollo: Mark unwatched" if watched else "Apollo: Mark watched",
+            f"RunPlugin({url('set_watched', media_id=media_id, watched='0' if watched else '1')})",
+        ))
+        if float(position or 0.0) > 0.0:
             actions.append((
-                "Apollo: Mark unwatched",
-                f"RunPlugin({url('set_watched', media_id=media_id, watched='0')})",
+                "Apollo: Clear progress",
+                f"RunPlugin({url('clear_progress', media_id=media_id)})",
             ))
-        else:
-            actions.append((
-                "Apollo: Mark watched",
-                f"RunPlugin({url('set_watched', media_id=media_id, watched='1')})",
-            ))
-    if row.get("available_locally") and media_id:
-        actions.insert(
-            0,
-            (
-                "Play Locally",
-                f"RunPlugin({url('play_local', media_id=media_id, canonical_id=row.get('canonical_id') or '', imdb=row.get('imdb_id') or '', media_type=media_type, season=int(season or 0), episode=int(episode or 0), title=title or row.get('title') or 'Unknown', show_title=show_title or row.get('series_title') or row.get('show_title') or '')})",
-            ),
-        )
+
     session = source_session.load()
-    if _source_session_matches_item(
-        session,
-        row,
-        media_type,
-        season=season,
-        episode=episode,
-    ):
+    if _source_session_matches_item(session, row, media_type, season=season, episode=episode):
         actions.extend([
-            ("Current Stream Info", f"RunPlugin({url('current_stream_info')})"),
-            ("Try Next Stream", f"RunPlugin({url('try_next')})"),
-            ("Flag Current Stream", f"RunPlugin({url('flag_current')})"),
+            ("Apollo: Current Stream Info", f"RunPlugin({url('current_stream_info')})"),
+            ("Apollo: Try Next Stream", f"RunPlugin({url('try_next')})"),
+            ("Apollo: Flag Current Stream", f"RunPlugin({url('flag_current')})"),
         ])
     return actions
 
@@ -1078,6 +1182,83 @@ def set_watchlist(p):
         notify(f"Watchlist update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
 
 
+def set_favorite(p):
+    media_id = str(p.get("media_id") or "").strip()
+    favorite = str(p.get("favorite") or "").strip().lower() in ("1", "true", "yes", "on")
+    try:
+        ams.set_favorite(ADDON, media_id, favorite)
+        notify("Added to Favorites" if favorite else "Removed from Favorites")
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        notify(f"Favorite update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
+def clear_progress(p):
+    media_id = str(p.get("media_id") or "").strip()
+    try:
+        ams.clear_progress(ADDON, media_id)
+        notify("Progress cleared")
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        notify(f"Clear progress failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
+def set_hierarchy_watched(p):
+    imdb_id = str(p.get("imdb") or "").strip()
+    watched = str(p.get("watched") or "").strip().lower() in ("1", "true", "yes", "on")
+    season_value = p.get("season")
+    season = int(season_value) if season_value not in (None, "") else None
+    try:
+        result = ams.set_hierarchy_watched(ADDON, imdb_id, watched, season=season)
+        noun = "Season" if season is not None else "Series"
+        changed = int(result.get("episodes_changed") or 0)
+        suffix = f" • {changed} episodes" if changed else ""
+        notify(f"{noun} marked {'watched' if watched else 'unwatched'}{suffix}")
+        xbmc.executebuiltin("Container.Refresh")
+    except Exception as exc:
+        notify(f"Hierarchy watched update failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
+def _series_target(imdb_id, season=None):
+    identity = ams.series_identity(ADDON, imdb_id)
+    if not identity:
+        raise RuntimeError("AMS could not resolve the canonical series identity")
+    title = str(identity.get("title") or "Show")
+    imdb_id = str(identity.get("imdb_id") or imdb_id or "").strip()
+    tmdb = str(identity.get("tmdb_id") or "").strip()
+    if season is None:
+        if tmdb:
+            return url(
+                "discovery_show",
+                media_id=identity.get("media_id") or identity.get("id"),
+                imdb=imdb_id,
+                tmdb=tmdb,
+                title=title,
+                available_locally="1" if identity.get("available_locally") else "0",
+            )
+        return url("show", imdb=imdb_id, title=title)
+    if tmdb:
+        return url("discovery_season", tmdb=tmdb, imdb=imdb_id, season=int(season), title=title)
+    return url("season", imdb=imdb_id, season=int(season), title=title)
+
+
+def go_series(p):
+    try:
+        xbmc.executebuiltin(f"Container.Update({_series_target(str(p.get('imdb') or '').strip())})")
+    except Exception as exc:
+        notify(f"Series navigation failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
+def go_season(p):
+    try:
+        imdb_id = str(p.get("imdb") or "").strip()
+        season = int(p.get("season") or 0)
+        xbmc.executebuiltin(f"Container.Update({_series_target(imdb_id, season=season)})")
+    except Exception as exc:
+        notify(f"Season navigation failed: {exc}", xbmcgui.NOTIFICATION_ERROR)
+
+
+
 def detect_device_compatibility():
     description, values = detect_compatibility(ADDON)
     labels = []
@@ -1193,6 +1374,8 @@ def dispatch():
         next_up()
     elif action == "watchlist":
         watchlist()
+    elif action == "favorites":
+        favorites()
     elif action == "discovery":
         discovery_list(p.get("mode") or "popular", p.get("media_type") or "movie", int(p.get("page") or 1))
     elif action == "search":
@@ -1217,6 +1400,16 @@ def dispatch():
         set_watched(p)
     elif action == "set_watchlist":
         set_watchlist(p)
+    elif action == "set_favorite":
+        set_favorite(p)
+    elif action == "clear_progress":
+        clear_progress(p)
+    elif action == "set_hierarchy_watched":
+        set_hierarchy_watched(p)
+    elif action == "go_series":
+        go_series(p)
+    elif action == "go_season":
+        go_season(p)
     elif action == "detect_compatibility":
         detect_device_compatibility()
     elif action == "link_torbox":

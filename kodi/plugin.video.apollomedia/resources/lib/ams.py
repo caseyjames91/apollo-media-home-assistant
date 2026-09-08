@@ -223,6 +223,101 @@ def continue_watching(addon):
     return rows if isinstance(rows, list) else []
 
 
+_favorites_cache = {}
+_watched_summary_cache = {}
+
+
+def favorites(addon):
+    pid = profile_id(addon)
+    cached = _favorites_cache.get(pid)
+    if cached is not None:
+        return cached
+    rows = request(addon, f"profiles/{pid}/favorites", timeout=10) or []
+    rows = rows if isinstance(rows, list) else []
+    _favorites_cache[pid] = rows
+    return rows
+
+
+def favorites_contains(addon, media_id):
+    target = str(media_id or "").strip()
+    if not target:
+        return False
+    return any(str(row.get("media_id") or "").strip() == target for row in favorites(addon))
+
+
+def set_favorite(addon, media_id, favorite):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        raise RuntimeError("Media ID is required to change Favorite state")
+    pid = profile_id(addon)
+    path = f"profiles/{pid}/favorites/{media_id}"
+    if favorite:
+        result = request(addon, path, method="PUT", timeout=5) or {}
+    else:
+        request(addon, path, method="DELETE", timeout=5)
+        result = {}
+    _favorites_cache.pop(pid, None)
+    return result
+
+
+def clear_progress(addon, media_id):
+    media_id = str(media_id or "").strip()
+    if not media_id:
+        raise RuntimeError("Media ID is required to clear progress")
+    pid = profile_id(addon)
+    result = request(
+        addon,
+        f"profiles/{pid}/media/{media_id}/clear-progress",
+        method="PUT",
+        timeout=5,
+    ) or {}
+    _progress_cache.pop(pid, None)
+    _progress_index_cache.pop(pid, None)
+    _watched_summary_cache.pop(pid, None)
+    return result
+
+
+def watched_summary(addon):
+    pid = profile_id(addon)
+    cached = _watched_summary_cache.get(pid)
+    if cached is not None:
+        return cached
+    result = request(addon, f"profiles/{pid}/watched-summary", timeout=10) or {}
+    result = result if isinstance(result, dict) else {}
+    _watched_summary_cache[pid] = result
+    return result
+
+
+def set_hierarchy_watched(addon, imdb_id, watched, season=None):
+    imdb_id = str(imdb_id or "").strip()
+    if not imdb_id:
+        raise RuntimeError("IMDb ID is required to change hierarchy watched state")
+    pid = profile_id(addon)
+    if season is None:
+        path = f"profiles/{pid}/series/{imdb_id}/watched"
+    else:
+        path = f"profiles/{pid}/series/{imdb_id}/season/{int(season)}/watched"
+    result = request(
+        addon,
+        path,
+        method="PUT",
+        payload={"watched": bool(watched)},
+        timeout=10,
+    ) or {}
+    _progress_cache.pop(pid, None)
+    _progress_index_cache.pop(pid, None)
+    _watched_summary_cache.pop(pid, None)
+    return result
+
+
+def series_identity(addon, imdb_id):
+    imdb_id = str(imdb_id or "").strip()
+    if not imdb_id:
+        raise RuntimeError("IMDb ID is required for series navigation")
+    result = request(addon, f"discovery/series-identity/{imdb_id}", timeout=10) or {}
+    return result if isinstance(result, dict) else {}
+
+
 _watchlist_cache = {}
 
 
@@ -367,5 +462,6 @@ def set_watched(addon, media_id, watched):
     # into any later rendering in the same plugin process.
     _progress_cache.pop(pid, None)
     _progress_index_cache.pop(pid, None)
+    _watched_summary_cache.pop(pid, None)
 
     return result or {}
