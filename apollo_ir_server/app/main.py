@@ -79,7 +79,12 @@ def register_device(device: str, display_name: str | None = None) -> dict[str, A
     return entry
 
 
-def register_command(device: str, command: str, command_type: str) -> None:
+def register_command(
+    device: str,
+    command: str,
+    command_type: str,
+    learner_entity_id: str,
+) -> None:
     registry = load_registry()
     devices = registry["devices"]
     entry = devices.setdefault(
@@ -95,6 +100,7 @@ def register_command(device: str, command: str, command_type: str) -> None:
     entry.setdefault("commands", {})[command] = {
         "name": command,
         "type": command_type,
+        "learner_entity_id": learner_entity_id,
         "learned_at": now_iso(),
     }
     entry["updated_at"] = now_iso()
@@ -164,7 +170,12 @@ async def run_learning_job(job_id: str, req: LearnRequest) -> None:
         job["updated_at"] = now_iso()
         return
 
-    register_command(req.device, req.command, req.command_type)
+    register_command(
+        req.device,
+        req.command,
+        req.command_type,
+        req.learner_entity_id,
+    )
     job["state"] = "learned"
     job["message"] = f"{req.device} / {req.command} learned successfully."
     job["updated_at"] = now_iso()

@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private final List<String> learnerLabels = new ArrayList<>();
     private final List<String> deviceIds = new ArrayList<>();
     private final List<String> deviceLabels = new ArrayList<>();
+    private final List<JSONObject> deviceRecords = new ArrayList<>();
 
     private SharedPreferences prefs;
     private EditText serverUrl;
@@ -274,10 +275,12 @@ public class MainActivity extends Activity {
                 JSONArray arr = requestJson("GET", base + "/api/devices", key, null).getJSONArray("devices");
                 List<String> ids = new ArrayList<>();
                 List<String> labels = new ArrayList<>();
+                List<JSONObject> records = new ArrayList<>();
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject item = arr.getJSONObject(i);
                     ids.add(item.getString("id"));
                     labels.add(item.optString("name", item.getString("id")));
+                    records.add(item);
                 }
 
                 handler.post(() -> {
@@ -286,6 +289,8 @@ public class MainActivity extends Activity {
                     deviceLabels.clear();
                     deviceIds.addAll(ids);
                     deviceLabels.addAll(labels);
+                    deviceRecords.clear();
+                    deviceRecords.addAll(records);
                     deviceAdapter.notifyDataSetChanged();
 
                     if (deviceIds.isEmpty()) {
@@ -461,17 +466,148 @@ public class MainActivity extends Activity {
         if (commandList == null) return;
         commandList.removeAllViews();
 
-        String device = selectedDeviceId();
-        if (device.isEmpty()) {
-            TextView empty = text("No devices yet. Add an existing device or learn your first command.", 14, false);
+        int position = deviceSpinner == null ? -1 : deviceSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= deviceRecords.size()) {
+            TextView empty = text("No device selected.", 14, false);
             empty.setTextColor(Color.rgb(145, 151, 163));
             commandList.addView(empty);
             return;
         }
 
-        TextView hint = text("Selected: " + device + "\nNew learned commands will be added here automatically.", 14, false);
-        hint.setTextColor(Color.rgb(145, 151, 163));
-        commandList.addView(hint);
+        JSONObject deviceRecord = deviceRecords.get(position);
+        String deviceId = deviceRecord.optString("id", selectedDeviceId());
+        JSONObject commands = deviceRecord.optJSONObject("commands");
+
+        TextView heading = text("Commands", 16, true);
+        heading.setPadding(0, dp(10), 0, dp(6));
+        commandList.addView(heading);
+
+        if (commands == null || commands.length() == 0) {
+            TextView empty = text(
+                    "No commands learned yet. Use Learn new command below.",
+                    14,
+                    false
+            );
+            empty.setTextColor(Color.rgb(145, 151, 163));
+            commandList.addView(empty);
+            return;
+        }
+
+        JSONArray names = commands.names();
+        if (names == null) return;
+
+        for (int i = 0; i < names.length(); i++) {
+            String command = names.optString(i, "");
+            if (command.isEmpty()) continue;
+
+            JSONObject meta = commands.optJSONObject(command);
+            String type = meta == null ? "" : meta.optString("type", "");
+            String learnerEntity = meta == null ? "" : meta.optString("learner_entity_id", "");
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(10), dp(8), dp(10));
+
+            GradientDrawable rowBg = new GradientDrawable();
+            rowBg.setColor(Color.rgb(32, 35, 42));
+            rowBg.setCornerRadius(dp(12));
+            row.setBackground(rowBg);
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            rowLp.setMargins(0, dp(5), 0, dp(5));
+            row.setLayoutParams(rowLp);
+
+            LinearLayout labels = new LinearLayout(this);
+            labels.setOrientation(LinearLayout.VERTICAL);
+
+            TextView nameView = text(command, 16, true);
+            labels.addView(nameView);
+
+            TextView typeView = text(
+                    type.isEmpty() ? "Learned command" : type.toUpperCase() + " command",
+                    12,
+                    false
+            );
+            typeView.setTextColor(Color.rgb(135, 142, 154));
+            labels.addView(typeView);
+
+            LinearLayout.LayoutParams labelsLp = new LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+            );
+            row.addView(labels, labelsLp);
+
+            Button test = secondaryButton("Test");
+            test.setTextSize(14);
+            test.setOnClickListener(v ->
+                    sendCommandFromBrowser(test, learnerEntity, deviceId, command)
+            );
+
+            LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(
+                    dp(88),
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            row.addView(test, testLp);
+
+            commandList.addView(row);
+        }
+    }
+
+    private void sendCommandFromBrowser(
+            Button button,
+            String storedRemote,
+            String device,
+            String command
+    ) {
+        String remote = storedRemote;
+        if (remote == null || remote.isEmpty()) {
+            remote = selectedLearnerId();
+        }
+
+        if (remote == null || remote.isEmpty()) {
+            learnStatus.setText("Choose a learner before testing this command.");
+            return;
+        }
+
+        final String sendRemote = remote;
+        final String base = cleanBaseUrl(serverUrl.getText().toString());
+        final String key = apiKey.getText().toString().trim();
+
+        button.setEnabled(false);
+        String originalLabel = button.getText().toString();
+        button.setText("Sending…");
+        learnStatus.setText("Sending " + command + "…");
+
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("remote_entity_id", sendRemote);
+                body.put("device", device);
+                body.put("command", command);
+
+                requestJson("POST", base + "/api/send", key, body.toString());
+
+                handler.post(() -> {
+                    learnStatus.setText("✓ Sent  " + device + " · " + command);
+                    button.setText("✓ Sent");
+                    button.postDelayed(() -> {
+                        button.setText(originalLabel);
+                        button.setEnabled(true);
+                    }, 900);
+                });
+            } catch (Exception e) {
+                handler.post(() -> {
+                    learnStatus.setText("Test failed: " + e.getMessage());
+                    button.setText("Retry");
+                    button.setEnabled(true);
+                });
+            }
+        }, "apollo-command-test").start();
     }
 
     private void startLearn(String type) {
