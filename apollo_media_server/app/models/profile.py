@@ -16,6 +16,11 @@ class Profile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     progress = relationship("Progress", back_populates="profile", cascade="all, delete-orphan")
+    favorite_items = relationship(
+        "FavoriteItem",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+    )
     watchlist_items = relationship(
         "WatchlistItem",
         back_populates="profile",

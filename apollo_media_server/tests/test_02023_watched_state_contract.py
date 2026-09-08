@@ -16,13 +16,15 @@ def test_profile_media_watched_endpoint_exists():
 
 
 def test_watched_mutation_sets_authoritative_state():
-    assert "progress.watched = bool(payload.watched)" in PROGRESS_API
-    assert "progress.watched_at = now if payload.watched else None" in PROGRESS_API
+    assert "_apply_watched_state(progress, bool(payload.watched), now)" in PROGRESS_API
+    assert "progress.watched = bool(watched)" in PROGRESS_API
+    assert "progress.watched_at = now if watched else None" in PROGRESS_API
     assert "progress.updated_at = now" in PROGRESS_API
 
 
 def test_mark_watched_clears_resume_position():
-    assert "if payload.watched:" in PROGRESS_API
+    assert "_apply_watched_state(progress, bool(payload.watched), now)" in PROGRESS_API
+    assert "if watched:" in PROGRESS_API
     assert "progress.position_seconds = 0.0" in PROGRESS_API
 
 

@@ -1,4 +1,5 @@
 from app.models.device import Device
+from app.models.favorite import FavoriteItem
 from app.models.integration import Integration
 from app.models.local_availability import LocalAvailability
 from app.models.media import Media
@@ -9,4 +10,4 @@ from app.models.profile_integration import ProfileIntegration
 from app.models.progress import Progress
 from app.models.watchlist import WatchlistItem
 
-__all__ = ["Device", "Integration", "LocalAvailability", "Media", "PathMapping", "PlaybackSession", "Profile", "ProfileIntegration", "Progress", "WatchlistItem"]
+__all__ = ["Device", "FavoriteItem", "Integration", "LocalAvailability", "Media", "PathMapping", "PlaybackSession", "Profile", "ProfileIntegration", "Progress", "WatchlistItem"]

@@ -176,6 +176,205 @@ def continue_watching(profile_id: uuid.UUID, db: Session = Depends(get_db)):
     return out
 
 
+def _apply_watched_state(progress: Progress, watched: bool, now: datetime) -> None:
+    progress.watched = bool(watched)
+    progress.watched_at = now if watched else None
+    if watched:
+        progress.position_seconds = 0.0
+    progress.updated_at = now
+
+
+def _progress_row(
+    db: Session,
+    profile_id: uuid.UUID,
+    media: Media,
+) -> Progress:
+    progress = db.scalar(
+        select(Progress).where(
+            Progress.profile_id == profile_id,
+            Progress.media_id == media.id,
+        )
+    )
+    if progress is None:
+        progress = Progress(
+            profile_id=profile_id,
+            media_id=media.id,
+            position_seconds=0,
+            duration_seconds=0,
+        )
+        db.add(progress)
+    return progress
+
+
+@router.put("/profiles/{profile_id}/media/{media_id}/clear-progress")
+def clear_progress(
+    profile_id: uuid.UUID,
+    media_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if db.get(Media, media_id) is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    progress = db.scalar(
+        select(Progress).where(
+            Progress.profile_id == profile_id,
+            Progress.media_id == media_id,
+        )
+    )
+    if progress is not None:
+        progress.position_seconds = 0.0
+        progress.watched = False
+        progress.watched_at = None
+        progress.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+    return {
+        "status": "ok",
+        "profile_id": str(profile_id),
+        "media_id": str(media_id),
+        "watched": False,
+        "position_seconds": 0.0,
+    }
+
+
+def _set_hierarchy_watched(
+    db: Session,
+    profile_id: uuid.UUID,
+    imdb_id: str,
+    watched: bool,
+    season: int | None = None,
+):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    target = str(imdb_id or "").strip()
+    query = select(Media).where(
+        Media.media_type == "episode",
+        Media.imdb_id == target,
+    )
+    if season is not None:
+        query = query.where(Media.season == int(season))
+
+    rows = db.scalars(query).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Series episodes not found")
+
+    now = datetime.now(timezone.utc)
+    for media in rows:
+        progress = _progress_row(db, profile_id, media)
+        _apply_watched_state(progress, watched, now)
+    db.commit()
+
+    return {
+        "status": "ok",
+        "profile_id": str(profile_id),
+        "imdb_id": target,
+        "season": season,
+        "watched": bool(watched),
+        "episodes_changed": len(rows),
+    }
+
+
+@router.put("/profiles/{profile_id}/series/{imdb_id}/watched")
+def set_series_watched(
+    profile_id: uuid.UUID,
+    imdb_id: str,
+    payload: WatchedUpdate,
+    db: Session = Depends(get_db),
+):
+    return _set_hierarchy_watched(
+        db,
+        profile_id,
+        imdb_id,
+        bool(payload.watched),
+    )
+
+
+@router.put(
+    "/profiles/{profile_id}/series/{imdb_id}/season/{season}/watched"
+)
+def set_season_watched(
+    profile_id: uuid.UUID,
+    imdb_id: str,
+    season: int,
+    payload: WatchedUpdate,
+    db: Session = Depends(get_db),
+):
+    return _set_hierarchy_watched(
+        db,
+        profile_id,
+        imdb_id,
+        bool(payload.watched),
+        season=int(season),
+    )
+
+
+@router.get("/profiles/{profile_id}/watched-summary")
+def watched_summary(
+    profile_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    media_rows = db.scalars(
+        select(Media).where(
+            Media.media_type == "episode",
+            Media.imdb_id.is_not(None),
+        )
+    ).all()
+    progress_rows = db.scalars(
+        select(Progress).where(Progress.profile_id == profile_id)
+    ).all()
+    watched_by_media = {
+        row.media_id: bool(row.watched)
+        for row in progress_rows
+    }
+
+    series = {}
+    seasons = {}
+    for media in media_rows:
+        imdb = str(media.imdb_id or "").strip()
+        if not imdb:
+            continue
+        season = int(media.season or 0)
+        watched = watched_by_media.get(media.id, False)
+
+        series_row = series.setdefault(
+            imdb,
+            {"imdb_id": imdb, "total": 0, "watched_count": 0},
+        )
+        series_row["total"] += 1
+        series_row["watched_count"] += int(watched)
+
+        key = (imdb, season)
+        season_row = seasons.setdefault(
+            key,
+            {
+                "imdb_id": imdb,
+                "season": season,
+                "total": 0,
+                "watched_count": 0,
+            },
+        )
+        season_row["total"] += 1
+        season_row["watched_count"] += int(watched)
+
+    series_out = []
+    for row in series.values():
+        row["watched"] = row["total"] > 0 and row["watched_count"] == row["total"]
+        series_out.append(row)
+
+    seasons_out = []
+    for row in seasons.values():
+        row["watched"] = row["total"] > 0 and row["watched_count"] == row["total"]
+        seasons_out.append(row)
+
+    return {"series": series_out, "seasons": seasons_out}
+
+
 @router.put("/profiles/{profile_id}/media/{media_id}/watched")
 def set_watched(
     profile_id: uuid.UUID,
@@ -206,14 +405,7 @@ def set_watched(
         db.add(progress)
 
     now = datetime.now(timezone.utc)
-    progress.watched = bool(payload.watched)
-    progress.watched_at = now if payload.watched else None
-    # A manually watched title is no longer resumable/in-progress.
-    # Preserve the observed duration, but clear the resume position so every
-    # Apollo client renders watched state without an in-progress indicator.
-    if payload.watched:
-        progress.position_seconds = 0.0
-    progress.updated_at = now
+    _apply_watched_state(progress, bool(payload.watched), now)
 
     db.commit()
 

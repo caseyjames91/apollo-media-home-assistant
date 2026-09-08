@@ -27,6 +27,11 @@ class Media(Base):
     backdrop_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     progress = relationship("Progress", back_populates="media", cascade="all, delete-orphan")
+    favorite_items = relationship(
+        "FavoriteItem",
+        back_populates="media",
+        cascade="all, delete-orphan",
+    )
     local_sources = relationship("LocalAvailability", back_populates="media", cascade="all, delete-orphan")
     watchlist_items = relationship(
         "WatchlistItem",
