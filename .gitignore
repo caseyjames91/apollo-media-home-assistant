@@ -5,3 +5,9 @@ __pycache__/
 
 # Local build/temp files
 /*.zip
+
+# Apollo AVA IR Bridge signing material / build output
+ava-ir-bridge/**/*.keystore
+ava-ir-bridge/**/*.jks
+ava-ir-bridge/.gradle/
+ava-ir-bridge/app/build/
