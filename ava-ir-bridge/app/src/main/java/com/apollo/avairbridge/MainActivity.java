@@ -884,9 +884,7 @@ public class MainActivity extends Activity {
 
         showConfirmDialog(
                 "Delete command?",
-                device + " · " + command + "
-
-This removes it from Home Assistant/BroadLink and Apollo.",
+                device + " · " + command + "\n\nThis removes it from Home Assistant/BroadLink and Apollo.",
                 "Delete",
                 () -> deleteCommand(deleteRemote, device, command)
         );
