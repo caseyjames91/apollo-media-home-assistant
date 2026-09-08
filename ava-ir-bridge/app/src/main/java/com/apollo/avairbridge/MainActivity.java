@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
     private Button learnIr;
     private Button learnRf;
     private TextView globalKeyStatus;
+    private TextView globalVolumeTargetStatus;
     private BroadcastReceiver globalKeyReceiver;
 
     private String lastDevice = "";
@@ -148,14 +149,40 @@ public class MainActivity extends Activity {
         keyCard.addView(accessibilitySettings);
 
         TextView keyHelp = text(
-                "Enable AVA IR Bridge, then leave this app and press the physical volume buttons. "
-                        + "This diagnostic does not consume the buttons or send IR yet.",
+                "Enable AVA IR Bridge in Accessibility. When a volume target is configured, "
+                        + "the two physical volume buttons work globally.",
                 12,
                 false
         );
         keyHelp.setTextColor(Color.rgb(140, 146, 158));
-        keyHelp.setPadding(0, dp(10), 0, 0);
+        keyHelp.setPadding(0, dp(10), 0, dp(12));
         keyCard.addView(keyHelp);
+
+        globalVolumeTargetStatus = text("Volume target: not configured", 14, false);
+        globalVolumeTargetStatus.setTextColor(Color.rgb(170, 176, 188));
+        globalVolumeTargetStatus.setPadding(0, 0, 0, dp(10));
+        keyCard.addView(globalVolumeTargetStatus);
+
+        Button useSelectedForVolume = primaryButton("Use selected device for volume");
+        useSelectedForVolume.setOnClickListener(v -> configureSelectedDeviceForGlobalVolume());
+        keyCard.addView(useSelectedForVolume);
+
+        Button disableGlobalVolume = secondaryButton("Disable hardware volume routing");
+        LinearLayout.LayoutParams disableVolumeLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        disableVolumeLp.setMargins(0, dp(10), 0, 0);
+        disableGlobalVolume.setLayoutParams(disableVolumeLp);
+        disableGlobalVolume.setOnClickListener(v -> {
+            prefs.edit()
+                    .putBoolean("global_volume_enabled", false)
+                    .remove("global_volume_device")
+                    .remove("global_volume_remote")
+                    .apply();
+            refreshGlobalKeyStatus();
+        });
+        keyCard.addView(disableGlobalVolume);
 
         LinearLayout deviceCard = card();
         root.addView(deviceCard);
@@ -292,6 +319,47 @@ public class MainActivity extends Activity {
         registerReceiver(globalKeyReceiver, filter);
     }
 
+    private void configureSelectedDeviceForGlobalVolume() {
+        String device = selectedDeviceId();
+        String remote = selectedLearnerId();
+
+        if (device.isEmpty()) {
+            learnStatus.setText("Select the TV/soundbar device first.");
+            return;
+        }
+        if (remote.isEmpty()) {
+            learnStatus.setText("Select the BroadLink learner first.");
+            return;
+        }
+
+        int position = deviceSpinner == null ? -1 : deviceSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= deviceRecords.size()) {
+            learnStatus.setText("Selected device is not available.");
+            return;
+        }
+
+        JSONObject record = deviceRecords.get(position);
+        JSONObject commands = record.optJSONObject("commands");
+
+        if (commands == null
+                || !commands.has("volume_up")
+                || !commands.has("volume_down")) {
+            learnStatus.setText(
+                    "This device needs commands named volume_up and volume_down first."
+            );
+            return;
+        }
+
+        prefs.edit()
+                .putBoolean("global_volume_enabled", true)
+                .putString("global_volume_device", device)
+                .putString("global_volume_remote", remote)
+                .apply();
+
+        learnStatus.setText("✓ Hardware volume target set: " + device);
+        refreshGlobalKeyStatus();
+    }
+
     private boolean isGlobalKeyServiceEnabled() {
         String expected = getPackageName() + "/" + GlobalKeyAccessibilityService.class.getName();
         String enabled = Settings.Secure.getString(
@@ -326,6 +394,21 @@ public class MainActivity extends Activity {
         } else {
             globalKeyStatus.setText("● Disabled — enable AVA IR Bridge in Accessibility");
             globalKeyStatus.setTextColor(Color.rgb(255, 190, 110));
+        }
+
+        if (globalVolumeTargetStatus != null) {
+            boolean volumeEnabled = prefs.getBoolean("global_volume_enabled", false);
+            String target = prefs.getString("global_volume_device", "");
+
+            if (volumeEnabled && !target.isEmpty()) {
+                globalVolumeTargetStatus.setText(
+                        "Volume target: " + target + " · volume_up / volume_down"
+                );
+                globalVolumeTargetStatus.setTextColor(Color.rgb(126, 231, 135));
+            } else {
+                globalVolumeTargetStatus.setText("Volume target: not configured");
+                globalVolumeTargetStatus.setTextColor(Color.rgb(170, 176, 188));
+            }
         }
     }
 
