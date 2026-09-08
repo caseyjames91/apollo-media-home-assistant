@@ -19,8 +19,8 @@ android {
         applicationId 'com.apollo.avairbridge'
         minSdk 23
         targetSdk 30
-        versionCode 12
-        versionName '0.9.3'
+        versionCode 13
+        versionName '0.9.4'
     }
 
     buildTypes {

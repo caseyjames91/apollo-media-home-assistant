@@ -2,6 +2,7 @@ package com.apollo.avairbridge;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -18,6 +19,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -321,34 +323,110 @@ public class MainActivity extends Activity {
     }
 
     private void showCreateDeviceDialog(Runnable onFinished) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(8), dp(20), dp(8));
-        box.setBackgroundColor(Color.rgb(24, 27, 32));
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(20), dp(20), dp(20), dp(18));
+
+        GradientDrawable shellBg = new GradientDrawable();
+        shellBg.setColor(Color.rgb(24, 27, 32));
+        shellBg.setCornerRadius(dp(22));
+        shellBg.setStroke(dp(1), Color.rgb(50, 55, 65));
+        shell.setBackground(shellBg);
+
+        TextView title = text("Create new device", 22, true);
+        shell.addView(title);
+
+        TextView subtitle = text(
+                "Add a device to Apollo, then teach it IR or RF commands.",
+                14,
+                false
+        );
+        subtitle.setTextColor(Color.rgb(155, 162, 174));
+        subtitle.setPadding(0, dp(6), 0, dp(14));
+        shell.addView(subtitle);
 
         EditText idField = field("Device ID  (example: bedroom_soundbar)", false);
         EditText nameField = field("Friendly name  (example: Bedroom Soundbar)", false);
-        box.addView(idField);
-        box.addView(nameField);
+        shell.addView(idField);
+        shell.addView(nameField);
 
-        new AlertDialog.Builder(this)
-                .setTitle("Create new device")
-                .setMessage("Create a new Apollo device, then learn its first command.")
-                .setView(box)
-                .setNegativeButton("Cancel", (dialog, which) -> {
-                    if (onFinished != null) onFinished.run();
-                })
-                .setPositiveButton("Create", (dialog, which) -> {
-                    String device = idField.getText().toString().trim();
-                    String name = nameField.getText().toString().trim();
-                    if (device.isEmpty()) {
-                        learnStatus.setText("Device ID is required.");
+        TextView idHelp = text(
+                "Device ID is the stable key Apollo and Home Assistant will use.",
+                12,
+                false
+        );
+        idHelp.setTextColor(Color.rgb(130, 137, 149));
+        idHelp.setPadding(dp(2), 0, 0, dp(12));
+        shell.addView(idHelp);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(0, dp(8), 0, 0);
+
+        Button cancel = secondaryButton("Cancel");
+        Button create = primaryButton("Create Device");
+
+        LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        cancelLp.setMargins(0, 0, dp(6), 0);
+
+        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1.4f
+        );
+        createLp.setMargins(dp(6), 0, 0, 0);
+
+        actions.addView(cancel, cancelLp);
+        actions.addView(create, createLp);
+        shell.addView(actions);
+
+        cancel.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (onFinished != null) onFinished.run();
+        });
+
+        create.setOnClickListener(v -> {
+            String device = idField.getText().toString().trim();
+            String name = nameField.getText().toString().trim();
+
+            if (device.isEmpty()) {
+                idField.setError("Device ID is required");
+                return;
+            }
+
+            create.setEnabled(false);
+            create.setText("Creating…");
+
+            addDevice(
+                    device,
+                    name.isEmpty() ? null : name,
+                    () -> {
+                        dialog.dismiss();
                         if (onFinished != null) onFinished.run();
-                        return;
                     }
-                    addDevice(device, name.isEmpty() ? null : name, onFinished);
-                })
-                .show();
+            );
+        });
+
+        dialog.setContentView(shell);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnCancelListener(d -> {
+            if (onFinished != null) onFinished.run();
+        });
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            int width = getResources().getDisplayMetrics().widthPixels - dp(28);
+            window.setLayout(width, LinearLayout.LayoutParams.WRAP_CONTENT);
+        }
     }
 
     private void addDevice(String device, String displayName, Runnable onFinished) {
