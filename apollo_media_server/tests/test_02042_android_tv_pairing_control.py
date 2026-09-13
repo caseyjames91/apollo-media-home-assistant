@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from androidtvremote2 import ConnectionClosed
+from androidtvremote2 import CannotConnect, ConnectionClosed
 
 from app.integrations.registry import get_integration_type
 from app.models.device import Device
@@ -27,6 +27,8 @@ class FakeRemote:
         self.disconnected = False
         self.connect_count = 0
         self.fail_next_command = False
+        self.reconnecting = False
+        self.availability_callback = None
         self.is_on = True
         self.current_app = "com.google.android.youtube.tv"
         self.volume_info = {"level": 10, "maximum": 25, "muted": False}
@@ -50,6 +52,16 @@ class FakeRemote:
         self.disconnected = False
         return None
 
+    def add_is_available_updated_callback(self, callback):
+        self.availability_callback = callback
+
+    def keep_reconnecting(self):
+        self.reconnecting = True
+
+    def set_available(self, available):
+        if self.availability_callback is not None:
+            self.availability_callback(available)
+
     def send_key_command(self, command):
         if self.fail_next_command:
             self.fail_next_command = False
@@ -61,6 +73,7 @@ class FakeRemote:
 
     def disconnect(self):
         self.disconnected = True
+        self.reconnecting = False
 
 
 @pytest.fixture
@@ -133,6 +146,8 @@ async def test_send_android_tv_key_reuses_connection(android_tv):
     assert remote.commands == ["HOME", "DPAD_DOWN"]
     assert remote.connect_count == 1
     assert remote.disconnected is False
+    assert remote.reconnecting is True
+    assert android_tv_control._connections[device.id].available is True
     assert len(android_tv_control._connections) == 1
 
 
@@ -211,7 +226,38 @@ async def test_android_tv_command_reconnects_after_connection_drop(android_tv):
     assert remote.connect_count == 2
     assert remote.commands == ["HOME", "DPAD_DOWN"]
     assert remote.disconnected is False
-    assert android_tv_control._connections[device.id].connected is True
+    assert remote.reconnecting is True
+    assert android_tv_control._connections[device.id].available is True
+
+
+@pytest.mark.asyncio
+async def test_android_tv_native_availability_controls_state_and_commands(android_tv):
+    integration, device = android_tv
+
+    online = await android_tv_control.get_state(integration, device)
+    remote = FakeRemote.instances[-1]
+    assert online["available"] is True
+    assert remote.reconnecting is True
+
+    remote.set_available(False)
+
+    offline = await android_tv_control.get_state(integration, device)
+    assert offline == {
+        "available": False,
+        "is_on": None,
+        "current_app": None,
+        "volume": None,
+        "device_info": None,
+    }
+
+    with pytest.raises(CannotConnect, match="unavailable"):
+        await android_tv_control.send_key(integration, device, "home")
+
+    remote.set_available(True)
+    await android_tv_control.send_key(integration, device, "home")
+
+    assert remote.connect_count == 1
+    assert remote.commands == ["HOME"]
 
 
 @pytest.mark.asyncio

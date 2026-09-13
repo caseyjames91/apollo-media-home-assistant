@@ -50,7 +50,8 @@ class DeviceConnection:
     remote: AndroidTVRemote
     host: str
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    connected: bool = False
+    started: bool = False
+    available: bool = False
 
 
 _pairing_sessions: dict[uuid.UUID, PairingSession] = {}
@@ -108,13 +109,18 @@ def _get_connection(integration: Integration, device: Device) -> DeviceConnectio
             remote=_remote(integration, device),
             host=host,
         )
+
+        def availability_updated(is_available: bool) -> None:
+            connection.available = is_available
+
+        connection.remote.add_is_available_updated_callback(availability_updated)
         _connections[device.id] = connection
 
     return connection
 
 
 async def _connect_locked(connection: DeviceConnection) -> None:
-    if connection.connected:
+    if connection.started:
         return
 
     await connection.remote.async_connect()
@@ -124,11 +130,18 @@ async def _connect_locked(connection: DeviceConnection) -> None:
     # connection; subsequent commands reuse the live connection.
     await asyncio.sleep(0.5)
 
-    connection.connected = True
+    connection.available = True
+    connection.started = True
+
+    # androidtvremote2 natively watches the socket and reconnects with
+    # exponential backoff. Its availability callback is the authoritative
+    # liveness signal for this persistent device connection.
+    connection.remote.keep_reconnecting()
 
 
 def _mark_disconnected(connection: DeviceConnection) -> None:
-    connection.connected = False
+    connection.started = False
+    connection.available = False
     connection.remote.disconnect()
 
 
@@ -170,12 +183,21 @@ async def get_state(integration: Integration, device: Device) -> dict:
 
     async with connection.lock:
         try:
-            first_connect = not connection.connected
+            first_connect = not connection.started
             await _connect_locked(connection)
             if first_connect:
                 # Initial state arrives asynchronously after the Remote v2
                 # connection is established.
                 await asyncio.sleep(0.1)
+
+            if not connection.available:
+                return {
+                    "available": False,
+                    "is_on": None,
+                    "current_app": None,
+                    "volume": None,
+                    "device_info": None,
+                }
 
             remote = connection.remote
             return {
@@ -206,11 +228,16 @@ async def send_key(integration: Integration, device: Device, command: str) -> No
     async with connection.lock:
         try:
             await _connect_locked(connection)
+            if not connection.available:
+                raise CannotConnect("Android TV is unavailable")
             connection.remote.send_key_command(normalized)
-        except (CannotConnect, ConnectionClosed):
-            # Drop the stale session and retry once on a fresh connection.
+        except ConnectionClosed:
+            # If a synchronous send detects a stale socket before the
+            # reconnect loop does, rebuild once and retry immediately.
             _mark_disconnected(connection)
             await _connect_locked(connection)
+            if not connection.available:
+                raise CannotConnect("Android TV is unavailable")
             connection.remote.send_key_command(normalized)
 
 
@@ -224,14 +251,18 @@ async def launch(integration: Integration, device: Device, target: str) -> None:
     async with connection.lock:
         try:
             await _connect_locked(connection)
+            if not connection.available:
+                raise CannotConnect("Android TV is unavailable")
             connection.remote.send_launch_app_command(target)
             # androidtvremote2 buffers app-link launches and writes them
             # asynchronously. Give the event loop a brief opportunity to
             # flush the queued Remote v2 message before returning to the API.
             await asyncio.sleep(0.1)
-        except (CannotConnect, ConnectionClosed):
+        except ConnectionClosed:
             _mark_disconnected(connection)
             await _connect_locked(connection)
+            if not connection.available:
+                raise CannotConnect("Android TV is unavailable")
             connection.remote.send_launch_app_command(target)
             await asyncio.sleep(0.1)
 
@@ -240,7 +271,8 @@ def close_device_connection(device_id: uuid.UUID) -> None:
     connection = _connections.pop(device_id, None)
     if connection is not None:
         connection.remote.disconnect()
-        connection.connected = False
+        connection.started = False
+        connection.available = False
 
     session = _pairing_sessions.pop(device_id, None)
     if session is not None:
