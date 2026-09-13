@@ -1,4 +1,143 @@
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-13
+
+## Android TV stable identity — real-hardware validated
+
+Branch: `feature/apollo-integrations`
+
+Functional/code checkpoint: `a1e82d6016448bd16107a9a67df2d830eaec4e08` — `Use stable Android TV certificate identity`
+
+Previous documentation checkpoint: `f5916281e4e2e5c76d09a18e54c9db7f2a6641dd` — `Clarify integration checkpoint HEAD`
+
+Main baseline remains: `916bf7d5a6085c6ba6709b4230fbb49d964ed142` — `Release Apollo Media 0.10.64`
+
+Released versions at baseline:
+- Kodi addon: `0.10.64`
+- AMS: `0.2.29`
+
+### What changed
+
+Android TV discovery no longer treats `host:port` as durable device identity when the Remote v2 TLS certificate identity can be read.
+
+The integration now:
+- probes the Android TV Remote v2 pairing TLS endpoint
+- reads the certificate device name and MAC using `androidtvremote2.async_get_name_and_mac()`
+- normalizes the MAC
+- uses `mac:<lowercase-colon-mac>` as stable `source_device_id`
+- retains host/port in device `config_json` as mutable connection metadata
+- exposes `mac`, `certificate_name`, and `stable_identity` in discovery results
+- falls back to legacy `host:port` discovery identity only when certificate identity cannot be read, with `stable_identity=false`
+
+### Legacy migration behavior
+
+Existing Android TV rows that were imported before stable identity support are migrated in place when:
+- the new import carries a MAC-based source identity, and
+- exactly one existing row in the same integration matches the legacy `host:port` endpoint and saved config endpoint.
+
+Migration updates:
+- `source_device_id`
+- `device_key`
+- mutable connection metadata
+
+Migration preserves:
+- Apollo device UUID
+- room assignment
+- Apollo friendly/custom name
+- integration association
+- pairing relationship / integration credentials
+
+This prevents DHCP/IP changes from creating duplicate Apollo devices.
+
+### Real discovery results
+
+Physical discovery on the test network returned stable certificate identity for all three Android TV devices:
+
+- Bedroom Google TV
+  - host: `10.10.10.85`
+  - certificate name: `Google TV Streamer`
+  - certificate MAC: `B8:7B:D4:F1:F3:88`
+  - source ID: `mac:b8:7b:d4:f1:f3:88`
+
+- Living Room Google TV
+  - host: `10.10.10.59`
+  - certificate name: `Google TV Streamer`
+  - certificate MAC: `FC:91:5D:DF:F6:22`
+  - source ID: `mac:fc:91:5d:df:f6:22`
+
+- Living Room Shield
+  - host: `10.10.10.157`
+  - certificate name: `SHIELD Android TV`
+  - certificate MAC: `48:B0:2D:30:F0:D9`
+  - source ID: `mac:48:b0:2d:30:f0:d9`
+
+All three returned `stable_identity=true`.
+
+### Bedroom Google TV real migration validation
+
+Existing Apollo device before migration:
+- Apollo UUID: `008f7ebb-a90d-4f02-9cad-410dec195ebc`
+- source ID: `10.10.10.85:6466`
+- integration ID: `87278247-91e7-420f-8511-487aa20c8324`
+- paired: true
+
+Imported stable identity:
+- `mac:b8:7b:d4:f1:f3:88`
+
+Observed after migration:
+- Apollo UUID remained `008f7ebb-a90d-4f02-9cad-410dec195ebc`
+- exactly one matching device row existed
+- `device_key` updated to:
+  `android_tv:87278247-91e7-420f-8511-487aa20c8324:mac:b8:7b:d4:f1:f3:88`
+- source ID updated to:
+  `mac:b8:7b:d4:f1:f3:88`
+- host remained `10.10.10.85`
+- paired remained true
+- state returned `available=true`
+- state reported Google TV Streamer device info
+- HOME command returned HTTP 204 and worked
+
+This proves the real path:
+
+`legacy IP identity -> stable certificate MAC identity -> same Apollo UUID -> same pairing -> same control -> no duplicate`
+
+### Android TV status
+
+The Android TV integration has now been validated for:
+- registry/type exposure
+- mDNS discovery
+- stable certificate identity
+- legacy identity migration
+- pairing
+- persistent control connection
+- capability profile
+- navigation
+- volume
+- media controls
+- power off/wake
+- app-link launch
+- physical offline detection
+- native reconnect after return
+- command rejection while unavailable
+- no-repair recovery
+- host-independent Apollo device identity
+
+### Remaining Android TV merge gates
+
+Before merging `feature/apollo-integrations` to main:
+
+1. Production-like migration validation against a copy of the real HA add-on database.
+2. Verify legacy Kodi/device/integration rows survive migration/startup.
+3. Verify Radarr/Sonarr/TMDB integrations still behave correctly.
+4. Verify room CRUD and room/device relations.
+5. Verify Android TV integration config on the copied production DB.
+6. Decide whether to replace/document the current placeholder Android TV integration `/test`.
+7. Run full suite and ensure clean tree.
+8. Merge to main only after the copied-production-database gate passes.
+
+Second-screen Apollo UI work remains intentionally after Android TV merge-readiness.
+
+---
+
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-13
 ## Checkpoint — Apollo integration foundation + Android TV end-to-end runtime validation
 
 > **READ THIS FIRST.** This checkpoint supersedes older current-state and next-task statements later in this file. Historical checkpoints are intentionally preserved below.
