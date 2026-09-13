@@ -1,3 +1,564 @@
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-13
+## Checkpoint — Apollo integration foundation + Android TV end-to-end runtime validation
+
+> **READ THIS FIRST.** This checkpoint supersedes older current-state and next-task statements later in this file. Historical checkpoints are intentionally preserved below.
+
+### Repository state
+
+- Active development branch: `feature/apollo-integrations`
+- Current feature HEAD: `63060c2 — Track Android TV availability and reconnect natively`
+- Full feature HEAD SHA: `63060c2d86929cdad033adf0a44aa9616372493c`
+- Current `origin/main` baseline: `916bf7d — Release Apollo Media 0.10.64`
+- Full `origin/main` SHA: `916bf7d5a6085c6ba6709b4230fbb49d964ed142`
+- Working tree at checkpoint creation: **clean**
+- This branch is a **temporary development/safety branch**, not a long-lived fork or separate Apollo product line.
+- Intended flow remains: build integration architecture → runtime-test it → validate migration compatibility → merge to `main` → continue normal Apollo development.
+- Kodi stable/runtime baseline inherited from main: **0.10.64**
+- AMS released/runtime baseline inherited from main: **0.2.29**
+
+### Why this checkpoint exists
+
+Apollo has crossed a major architectural boundary.
+
+The project now has a generalized integration/device/room foundation and the first real implementation, **Android TV**, has been proven against physical hardware through discovery, import, pairing, state, navigation, media controls, volume, power, app-link launching, true offline detection, and automatic recovery.
+
+This is a good recovery point because the next work changes from “prove the Android TV control stack works” to “harden identity/migration and prepare the branch for merge.”
+
+### Binding integration architecture
+
+Apollo's device architecture now follows this rule:
+
+**Integrations own how devices are discovered and controlled. Apollo owns how those devices are organized and presented.**
+
+Three layers:
+
+1. **Integration type / driver**
+   - examples: `android_tv`, future `home_assistant`, `ir_remote`, `kodi`, Roku, Sonos, AVR integrations, etc.
+2. **Configured integration instance**
+   - stores driver-specific shared configuration and credentials.
+3. **Apollo device**
+   - one discovered/imported physical or logical device belonging to an integration instance.
+   - Apollo owns friendly name, room assignment, capabilities, presentation, and shared configuration metadata.
+
+Current Android TV design intentionally uses **one Android TV integration instance for multiple TVs**. Each TV is its own Apollo Device and is paired/trusted individually while sharing the integration's client identity/certificate material.
+
+### Binding configuration/control ownership rule
+
+The agreed model is hybrid:
+
+- **AMS/backend is authoritative for configuration**
+  - integrations
+  - imported devices
+  - friendly names
+  - Apollo room assignments
+  - capabilities
+  - shared connection/configuration metadata
+- **Remote clients may cache configuration locally**
+  - fast UI
+  - resilience if AMS is briefly unavailable
+- **Integration drivers decide the control path**
+  - Android TV may ultimately be controlled directly from a remote/client where appropriate
+  - IR stays local when local IR hardware owns emission
+  - HA-origin devices may be controlled through Home Assistant
+  - AMS remains authoritative for centralized/profile/shared state
+
+Binding rule:
+
+**AMS owns configuration. The integration driver decides the control path.**
+
+Do not make Home Assistant special in the architecture. HA is a later integration/discovery/control source, not the owner of Apollo rooms or devices.
+
+### Integration/device/room foundation completed on this branch
+
+Key feature history:
+
+- `b027fa8 — Add Apollo integration device room foundation`
+- `4ff9692 — Add Android TV integration registry and discovery`
+- `f349b04 — Add Android TV pairing and control`
+- `7247ec5 — Keep Android TV control connections persistent`
+- `1c18c5c — Expose capability-driven device controls`
+- `64996fbf — Add Android TV reconnect recovery and device deletion`
+- `d0dac7b — Flush Android TV app launch commands`
+- `63060c2 — Track Android TV availability and reconnect natively`
+
+Foundation now includes:
+
+- generalized Integration model/registry
+- Apollo-owned Room model/API
+- generalized Device model/API
+- additive SQLite migration support
+- Android TV integration type
+- Android TV Remote v2 discovery
+- import into Apollo Devices
+- pairing
+- persistent control connections
+- generic capability-driven control profiles
+- device deletion
+- connection cleanup
+- app-link launch flush handling
+- native connection availability/reconnect lifecycle
+
+### Android TV protocol/runtime choice
+
+Android TV uses:
+
+- Python package: `androidtvremote2==0.3.2`
+- protocol family: Android TV Remote protocol v2
+- normal runtime does **not** require ADB
+- pairing port: 6467
+- remote/control port: 6466
+
+ADB was used only as a diagnostic tool while investigating Kodi/package-launch behavior. Do not make ADB a normal Apollo Android TV runtime dependency unless that product decision is deliberately changed later.
+
+### Physical hardware runtime target
+
+Primary test device:
+
+- Apollo name: **Bedroom Google TV**
+- Hardware identified by Remote v2: **Google TV Streamer**
+- Manufacturer: **Google**
+- Test host during this checkpoint: `10.10.10.85`
+- Remote v2 endpoint during this checkpoint: `10.10.10.85:6466`
+- Apollo device UUID: `008f7ebb-a90d-4f02-9cad-410dec195ebc`
+- Android TV integration UUID used by the temporary test DB: `87278247-91e7-420f-8511-487aa20c8324`
+
+Other devices discovered during real discovery:
+
+- Living Room Google TV — `10.10.10.59:6466`
+- Living Room Shield — `10.10.10.157:6466`
+
+These addresses are runtime observations, **not stable identities**.
+
+### Real Android TV discovery/import/pairing validation — PASSED
+
+Real mDNS discovery through `_androidtvremote2._tcp.local.` found all three Android TV devices listed above.
+
+Bedroom Google TV was imported successfully as an Apollo Android TV device.
+
+Real Remote v2 pairing succeeded on the physical Google TV Streamer.
+
+Post-pairing state was read successfully and returned:
+
+- available: true
+- power state
+- foreground app
+- volume level/max/mute
+- manufacturer
+- model
+- software version
+
+This proves the integration is not a mocked-only implementation.
+
+### Persistent-control lifecycle — PASSED
+
+The first implementation connected/disconnected around each individual command. Real hardware exposed that as unreliable: HTTP 204 only proved AMS accepted the request; the first Remote v2 command could be lost during connection startup.
+
+The implementation was changed to **one persistent Remote v2 connection per paired Apollo device**.
+
+Current behavior:
+
+- connection cached by Apollo device UUID
+- per-device async lock serializes operations
+- fresh connection receives a short 0.5-second initial settle period
+- normal button presses reuse the established connection
+- no reconnect between normal rapid commands
+- connection closed on AMS shutdown, device deletion, pairing restart, or explicit lifecycle reset
+
+Real hardware validation:
+
+- HOME succeeds after initial connection settle
+- 3× DPAD_DOWN at approximately 150 ms spacing all executed
+- DPAD_DOWN → DPAD_RIGHT → DPAD_RIGHT at approximately 300 ms spacing was reported **flawless**
+- no reconnect occurred between those button presses
+
+### Capability-driven control profile — PASSED
+
+Apollo exposes a generic device control profile so future UI/second-screen clients do not need to hardcode Android TV semantics.
+
+Current Android TV control groups:
+
+**power**
+- POWER
+
+**navigation**
+- DPAD_UP
+- DPAD_DOWN
+- DPAD_LEFT
+- DPAD_RIGHT
+- DPAD_CENTER
+- BACK
+- HOME
+
+**volume**
+- VOLUME_UP
+- VOLUME_DOWN
+- MUTE
+
+**media**
+- MEDIA_PLAY
+- MEDIA_PAUSE
+- MEDIA_PLAY_PAUSE
+- MEDIA_STOP
+- MEDIA_PREVIOUS
+- MEDIA_NEXT
+
+Android TV also advertises:
+- launch support
+- state support
+
+This is the contract the future Apollo second-screen/device UI should consume.
+
+### Real physical controls validated
+
+Successfully exercised on the Bedroom Google TV Streamer:
+
+- HOME
+- DPAD_DOWN
+- DPAD_RIGHT
+- rapid navigation sequences
+- DPAD_CENTER
+- BACK
+- VOLUME_UP
+- VOLUME_DOWN
+- MUTE
+- MEDIA_PLAY_PAUSE
+- POWER off
+- POWER wake/on
+- app-link launch using YouTube
+
+Power behavior is especially important:
+
+1. POWER turned the physical TV/streamer off.
+2. Remote v2 state remained connected enough to report:
+   - available: true
+   - is_on: false
+3. A second POWER woke/turned the device back on.
+4. No AMS restart or re-pair was required.
+
+Not individually runtime-tested at this checkpoint, but using the same validated key path:
+- DPAD_UP
+- DPAD_LEFT
+- MEDIA_PLAY
+- MEDIA_PAUSE
+- MEDIA_STOP
+- MEDIA_PREVIOUS
+- MEDIA_NEXT
+
+Do not treat those untested individual keys as a blocker unless a regression appears.
+
+### App launching — normal/deep-link path PASSED
+
+A Remote v2 app-launch issue was traced to library behavior.
+
+`androidtvremote2.send_launch_app_command()` buffers the launch message asynchronously. AMS originally returned too quickly, so the buffered write could fail to reach the TV reliably.
+
+The fix adds a brief 0.1-second event-loop flush after sending app-launch requests.
+
+Real physical validation:
+
+- `https://www.youtube.com` successfully opened YouTube through AMS.
+
+Known platform limitation:
+
+- plain package launch for Kodi (`org.xbmc.kodi`) did not work through Remote v2.
+- direct package launch also failed in the same way outside AMS.
+- the user's Unfolded Circle Remote 2 test also failed to open Kodi by package.
+- ADB diagnostics proved Kodi itself is healthy and launchable via its Android launcher activity.
+- therefore this is not currently treated as an Apollo-specific failure.
+
+Deferred:
+- Apollo TV Launcher/helper APK for arbitrary installed-app/package launching
+- installed-app enumeration
+
+Do **not** block the Android TV integration milestone on Kodi package launching.
+
+### Native offline detection and reconnect — REAL HARDWARE PASSED
+
+A critical runtime test physically removed power from the Bedroom Google TV Streamer.
+
+Before the final fix, AMS incorrectly behaved like this:
+
+- `GET /state` returned stale cached state with `available:true`
+- HOME returned HTTP 204 even though the TV was physically offline
+
+Root cause:
+
+- cached Remote v2 properties did not prove the TCP/TLS connection was alive
+- key/app sends are buffered and therefore may not synchronously raise when the socket has disappeared
+- AMS was maintaining its own coarse `connected` flag instead of using the library's native availability lifecycle
+
+Final implementation uses `androidtvremote2`'s own connection lifecycle:
+
+- `add_is_available_updated_callback(...)`
+- `keep_reconnecting()`
+- native socket-loss detection
+- native reconnect loop with backoff
+- callback-driven availability state
+
+Real offline test with the streamer physically unplugged returned:
+
+```json
+{
+  "available": false,
+  "is_on": null,
+  "current_app": null,
+  "volume": null,
+  "device_info": null
+}
+```
+
+A HOME command while physically offline returned:
+
+- HTTP **502 Bad Gateway**
+- connection detail indicating the TV could not be reached at `10.10.10.85:6466`
+
+This is the desired behavior. AMS no longer lies with stale state or false 204 success while the device is unavailable.
+
+Then the physical streamer was plugged back in **without restarting AMS and without re-pairing**.
+
+Recovered state returned:
+
+- `available:true`
+- `is_on:true`
+- current app: Google TV launcher
+- volume restored
+- device info restored
+
+A subsequent HOME command returned HTTP 204 again through the recovered connection.
+
+Therefore the complete real hardware path is proven:
+
+**online → physical disappearance → unavailable/502 → physical return → automatic reconnect → normal control**
+
+This is a major Android TV integration runtime gate and should not be reopened without new regression evidence.
+
+### Device deletion / cleanup
+
+Apollo now has generic device deletion.
+
+For Android TV devices:
+- deletion closes/removes the cached persistent device connection
+- pairing-session state for that device is removed
+- the device DB row is deleted
+- shared Android TV integration client credentials are retained because the integration may own other TVs
+
+### Test status at this checkpoint
+
+The Android TV integration work has repeatedly passed:
+
+- targeted Android TV integration tests
+- reconnect/availability tests
+- device deletion tests
+- capability-profile tests
+- full AMS suite
+
+Immediately before this handoff checkpoint, the reconnect/availability patch passed the targeted suite and full AMS suite after correcting a **test-only missing `CannotConnect` import**.
+
+That temporary failure was not a production logic failure.
+
+Expected full-suite count at this stage is approximately the high-60s; use the actual current test run rather than relying on an old count when making future release decisions.
+
+Known non-blocking test warnings during this branch:
+- Starlette TestClient/httpx deprecation
+- anyio BlockingPortal deprecation
+- occasional `.pytest_cache` permission warning
+
+### Temporary Android TV AMS test runtime
+
+Runtime validation has been performed with a separate test AMS so production Home Assistant add-on data is not modified.
+
+Temporary AMS:
+- URL: `http://127.0.0.1:18100`
+- database: `/home/apollo/apollo-androidtv-test-runtime/config/apollo.db`
+- data directory: `/home/apollo/apollo-androidtv-test-runtime/config`
+- Python environment: `/home/apollo/apollo-androidtv-test-runtime/venv`
+
+An unrelated existing Docker test service occupies port 18099:
+- `ams-youtube-test`
+
+Do not stop or overwrite that service merely to run Android TV tests. Port **18100** is the known-good Android TV temporary runtime port.
+
+### Known remaining Android TV hardening work
+
+#### 1. Stable device identity — NEXT
+
+This is the next recommended task.
+
+Current discovery/import identity is effectively:
+
+`host:port`
+
+Example:
+`10.10.10.85:6466`
+
+That is not sufficiently stable. A DHCP address change can make the same television appear to Apollo as a new device.
+
+The `androidtvremote2` library can retrieve server certificate identity information through `async_get_name_and_mac()`. Investigate whether the certificate MAC/fingerprint provides a durable and sufficiently unique device identity for Apollo.
+
+Requirements for the fix:
+
+- preserve existing imported devices when possible
+- do not silently duplicate a TV after IP change
+- keep host/IP as mutable connection metadata, not identity
+- handle devices where the certificate identity may be missing or unusual
+- migration behavior for already-imported `host:port` Android TV devices must be explicit and safe
+
+Do not use model name or friendly name alone as identity; those are not unique.
+
+#### 2. Production-like migration validation
+
+Before merging this branch to main:
+
+1. back up/copy the production HA add-on SQLite DB
+2. run the feature-branch AMS against the copy
+3. verify additive schema migration
+4. verify existing integrations remain intact
+5. verify existing Kodi device registration behavior
+6. verify ARR/TMDB integration behavior
+7. verify room CRUD
+8. verify Android TV configuration/import/pairing state
+9. verify no destructive SQLite rebuild or data loss occurred
+
+Production AMS normally uses:
+- DB: `/config/apollo.db`
+- port: 8099
+
+Do not point experimental branch code directly at the only production DB copy.
+
+#### 3. Android TV integration-level `/test`
+
+The generic Android TV integration-level test endpoint may still be placeholder behavior.
+
+Device-level pairing/state/control is real and runtime-proven, but before merge decide whether:
+- integration-level `/test` should perform a meaningful validation, or
+- the product intentionally treats device-level state as the connectivity test.
+
+Do not cite the existing integration-level placeholder as proof of connectivity.
+
+### Merge/release gate
+
+Do **not** merge `feature/apollo-integrations` to main yet.
+
+Recommended gate:
+
+1. stable identity approach implemented or consciously deferred/documented
+2. production-like SQLite migration validated against a copy of the actual production DB
+3. legacy Kodi registration still works
+4. existing ARR/TMDB integrations still work
+5. Android TV discovery/import/pairing/control still works
+6. real offline/reconnect behavior remains good
+7. full AMS tests pass
+8. working tree clean
+9. handoff updated with final pre-merge SHA/state
+
+After that:
+- merge integration branch to `main`
+- determine AMS release/version bump
+- deploy through normal production path
+- runtime validate production deployment
+- then continue to second-screen implementation
+
+### Product priority after Android TV
+
+User explicitly established the order:
+
+1. **Android TV first**
+2. complete and harden the Android TV integration
+3. then implement/apply the Apollo UI to the remote's second/bottom screen
+
+Do not switch to Home Assistant as the next integration.
+Do not jump into second-screen implementation before the remaining Android TV merge gate is satisfied.
+
+### Second-screen direction retained
+
+After Android TV is merge-ready, return to the Apollo remote UI.
+
+Persistent header:
+- hamburger at top-left
+- active Room
+- global Search
+- Profile at top-right
+
+Persistent bottom navigation.
+
+Home:
+- overview-oriented
+- center content modeled after the Apollo HA card
+- no redundant Quick Actions block
+
+TV:
+- What's On
+- Guide
+- DVR later
+
+Devices:
+- devices assigned to current Apollo room
+- selecting a row opens device controls
+- inline power action when capability exists
+- control surface should be driven by the AMS capability profile, not Android-TV-specific hardcoding
+- expose as many appropriate controls as possible on the second display
+
+Media:
+- Apollo-card-style carousel rails
+- Trending / Popular Movies / Shows
+- Watchlist
+- See More → grid
+
+Library:
+- Recently Added / Released
+- Shows / Movies walls
+- sorting
+
+YouTube:
+- recommendations
+- subscriptions
+- channels
+- history
+- search
+
+Global search:
+- all media
+- TV listings
+
+Settings → Integrations remains the architecture/configuration hub.
+
+### Deferred work
+
+- Apollo TV Launcher/helper APK for arbitrary package launch
+- installed Android TV app enumeration
+- Home Assistant integration
+- IR/remote integration
+- additional TV/platform integrations
+- production second-screen application work until Android TV branch is merge-ready
+
+### Recovery procedure
+
+When a new conversation starts:
+
+1. Read this top checkpoint first.
+2. Run:
+   ```bash
+   cd ~/apollo-media-home-assistant
+   export GIT_PAGER=cat
+   export PAGER=cat
+   export LESS=FRX
+   git status --short
+   git branch --show-current
+   git --no-pager log -5 --oneline
+   git fetch origin
+   ```
+3. Confirm whether local `feature/apollo-integrations` and `origin/feature/apollo-integrations` are synchronized.
+4. Compare repository history after `63060c2`.
+5. Do not reconstruct the integration work from old conversation history unless Git differs from this checkpoint.
+6. Resume with **stable Android TV device identity** unless newer commits/checkpoints say otherwise.
+7. Preserve the no-pager preference for all future Apollo scripts/commands.
+
+Desired recovery prompt remains:
+
+**Resume Apollo.**
+
+---
+
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-08
 ## Checkpoint — Kodi 0.10.61 presentation validation + Estuary reference-client audit
 
