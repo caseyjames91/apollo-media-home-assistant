@@ -1,5 +1,126 @@
 # CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-13
 
+## Production-copy migration compatibility validated
+
+Branch: `feature/apollo-integrations`
+
+Latest functional checkpoint: `6e0fe8fdb7b8261f44aee802fe09fed2d0869230` — `Preserve legacy integration visibility`
+
+Previous Android TV stable-identity functional checkpoint:
+`a1e82d6016448bd16107a9a67df2d830eaec4e08` — `Use stable Android TV certificate identity`
+
+Previous handoff checkpoint:
+`3f1285572947cd50571a6f58662304c1e913d160` — `Checkpoint Android TV stable identity validation`
+
+Main baseline remains:
+`916bf7d5a6085c6ba6709b4230fbb49d964ed142` — `Release Apollo Media 0.10.64`
+
+### Production database migration test
+
+A transactionally consistent backup of the live AMS 0.2.29 Home Assistant add-on database was created using SQLite's online backup API.
+
+Production snapshot before feature-branch migration:
+- integrations: 4
+- devices: 2
+- rooms table: absent
+- profiles: 1
+- media: 8001
+- progress: 18
+- playback_sessions: 1
+- integrity_check: `ok`
+
+Persisted integrations before migration:
+- jellyfin
+- radarr
+- sonarr
+- tmdb
+
+Persisted devices before migration:
+- Bedroom Kodi
+- Kodi Test PC
+
+The feature branch was run against a disposable working copy only. Production AMS and the source production snapshot were not modified.
+
+### Migration result
+
+After `init_db()` from `feature/apollo-integrations`:
+- integrity_check remained `ok`
+- all existing row counts were preserved
+- `rooms` table was created successfully with 0 rows
+- new integration columns were added
+- new device columns were added
+- both legacy Kodi devices remained present with their existing IDs, device keys, HA entity IDs, and enabled state
+- AMS started successfully against the migrated copy on port 18101
+- `/devices` returned both legacy Kodi devices
+- `/rooms` returned `[]`
+- `/integrations/types` returned the generalized integration registry
+
+### Compatibility issue discovered and fixed
+
+The first production-copy API check exposed a regression:
+
+The database still contained all 4 integrations, but `GET /integrations` returned only:
+- radarr
+- sonarr
+- tmdb
+
+Jellyfin was hidden because:
+1. `jellyfin` was not registered in the new generalized integration registry, and
+2. `GET /integrations` filtered out persisted rows whose kind was absent from the registry.
+
+This was fixed by:
+- registering `jellyfin` as a first-class integration type
+- marking Jellyfin as requiring `base_url` and `access_token`
+- changing `GET /integrations` so persisted configuration rows remain visible even if a future/legacy kind lacks a registry entry
+- adding regression tests so unknown persisted integration kinds are not silently hidden
+
+Revalidation against the migrated production copy now returns:
+- jellyfin
+- radarr
+- sonarr
+- tmdb
+
+All four production integrations are API-visible.
+
+### Current Android TV state
+
+Android TV remains fully real-hardware validated for:
+- discovery
+- stable certificate MAC identity
+- legacy host identity migration
+- pairing
+- persistent controls
+- power
+- navigation
+- volume
+- media controls
+- app-link launch
+- offline detection
+- automatic reconnect
+- same-device identity across endpoint changes
+
+Bedroom Google TV stable identity:
+- Apollo UUID: `008f7ebb-a90d-4f02-9cad-410dec195ebc`
+- source ID: `mac:b8:7b:d4:f1:f3:88`
+- certificate MAC: `B8:7B:D4:F1:F3:88`
+
+### Remaining merge gates
+
+Before merging `feature/apollo-integrations` to main:
+
+1. Exercise room CRUD and room/device assignment against the migrated production copy.
+2. Exercise Radarr/Sonarr/TMDB integration tests against the migrated production copy.
+3. Verify Jellyfin configuration remains intact and its existing sync/media paths still work.
+4. Decide and implement/document meaningful Android TV integration `/test` behavior (currently placeholder).
+5. Run final full suite and clean-tree check.
+6. Update handoff with final migration/runtime proof.
+7. Merge to main.
+8. Only after Android TV/integration architecture is merge-ready, move to Apollo second-screen UI implementation.
+
+---
+
+# CURRENT AUTHORITATIVE CHECKPOINT — 2026-09-13
+
 ## Android TV stable identity — real-hardware validated
 
 Branch: `feature/apollo-integrations`
