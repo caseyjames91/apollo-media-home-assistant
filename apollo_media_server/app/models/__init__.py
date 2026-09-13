@@ -8,6 +8,20 @@ from app.models.playback_session import PlaybackSession
 from app.models.profile import Profile
 from app.models.profile_integration import ProfileIntegration
 from app.models.progress import Progress
+from app.models.room import Room
 from app.models.watchlist import WatchlistItem
 
-__all__ = ["Device", "FavoriteItem", "Integration", "LocalAvailability", "Media", "PathMapping", "PlaybackSession", "Profile", "ProfileIntegration", "Progress", "WatchlistItem"]
+__all__ = [
+    "Device",
+    "FavoriteItem",
+    "Integration",
+    "LocalAvailability",
+    "Media",
+    "PathMapping",
+    "PlaybackSession",
+    "Profile",
+    "ProfileIntegration",
+    "Progress",
+    "Room",
+    "WatchlistItem",
+]

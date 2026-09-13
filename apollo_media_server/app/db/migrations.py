@@ -36,6 +36,19 @@ _REQUIRED_SQLITE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "integrations": (
         ("name", "VARCHAR(100) NOT NULL DEFAULT 'default'"),
+        ("refresh_token", "TEXT"),
+        ("config_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ("created_at", "DATETIME"),
+        ("updated_at", "DATETIME"),
+    ),
+    "devices": (
+        ("integration_id", "VARCHAR(32)"),
+        ("source_device_id", "VARCHAR(255)"),
+        ("source_name", "VARCHAR(255)"),
+        ("room_id", "VARCHAR(32)"),
+        ("capabilities_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("config_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ("enabled", "BOOLEAN NOT NULL DEFAULT 1"),
     ),
 }
 
@@ -79,6 +92,22 @@ def migrate_database(engine: Engine) -> None:
             if "created_at" in profile_columns:
                 connection.exec_driver_sql(
                     "UPDATE profiles SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+                )
+
+        if "integrations" in tables:
+            integration_columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("integrations")
+            }
+            if "created_at" in integration_columns:
+                connection.exec_driver_sql(
+                    "UPDATE integrations SET created_at = CURRENT_TIMESTAMP "
+                    "WHERE created_at IS NULL"
+                )
+            if "updated_at" in integration_columns:
+                connection.exec_driver_sql(
+                    "UPDATE integrations SET updated_at = CURRENT_TIMESTAMP "
+                    "WHERE updated_at IS NULL"
                 )
 
         # Current media lookups mark provider IDs as indexed.  create_all() does
