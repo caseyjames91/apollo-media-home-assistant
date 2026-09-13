@@ -5,12 +5,16 @@ from fastapi import FastAPI
 from app.api import devices, discovery, favorites, health, integrations, local, media, next_up, profiles, progress, rooms, sessions, sync, watchlist
 from app.core.config import settings
 from app.db.session import init_db
+from app.services import android_tv_control
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    yield
+    try:
+        yield
+    finally:
+        android_tv_control.close_all_connections()
 
 
 app = FastAPI(

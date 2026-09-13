@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from androidtvremote2 import (
@@ -45,7 +45,16 @@ class PairingSession:
     device_id: uuid.UUID
 
 
+@dataclass
+class DeviceConnection:
+    remote: AndroidTVRemote
+    host: str
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    connected: bool = False
+
+
 _pairing_sessions: dict[uuid.UUID, PairingSession] = {}
+_connections: dict[uuid.UUID, DeviceConnection] = {}
 
 
 def _device_config(device: Device) -> dict:
@@ -84,10 +93,53 @@ def _remote(integration: Integration, device: Device) -> AndroidTVRemote:
     )
 
 
+def _get_connection(integration: Integration, device: Device) -> DeviceConnection:
+    host = _host(device)
+    connection = _connections.get(device.id)
+
+    # Recreate the client if the device was reconfigured to a different host.
+    if connection is not None and connection.host != host:
+        connection.remote.disconnect()
+        _connections.pop(device.id, None)
+        connection = None
+
+    if connection is None:
+        connection = DeviceConnection(
+            remote=_remote(integration, device),
+            host=host,
+        )
+        _connections[device.id] = connection
+
+    return connection
+
+
+async def _connect_locked(connection: DeviceConnection) -> None:
+    if connection.connected:
+        return
+
+    await connection.remote.async_connect()
+
+    # Remote v2 needs a brief initial settle period before the first
+    # command is reliably accepted. This only happens on a fresh
+    # connection; subsequent commands reuse the live connection.
+    await asyncio.sleep(0.5)
+
+    connection.connected = True
+
+
+def _mark_disconnected(connection: DeviceConnection) -> None:
+    connection.connected = False
+    connection.remote.disconnect()
+
+
 async def start_pairing(integration: Integration, device: Device) -> None:
     existing = _pairing_sessions.pop(device.id, None)
     if existing is not None:
         existing.remote.disconnect()
+
+    existing_connection = _connections.pop(device.id, None)
+    if existing_connection is not None:
+        existing_connection.remote.disconnect()
 
     remote = _remote(integration, device)
     await remote.async_generate_cert_if_missing()
@@ -113,34 +165,35 @@ async def finish_pairing(device: Device, code: str) -> None:
         _write_device_config(device, config)
 
 
-async def _connect(integration: Integration, device: Device) -> AndroidTVRemote:
-    remote = _remote(integration, device)
-    await remote.async_connect()
-    return remote
-
-
 async def get_state(integration: Integration, device: Device) -> dict:
-    remote = _remote(integration, device)
-    try:
-        await remote.async_connect()
-        await asyncio.sleep(0.1)
-        return {
-            "available": True,
-            "is_on": remote.is_on,
-            "current_app": remote.current_app or None,
-            "volume": remote.volume_info or None,
-            "device_info": remote.device_info or None,
-        }
-    except (CannotConnect, ConnectionClosed):
-        return {
-            "available": False,
-            "is_on": None,
-            "current_app": None,
-            "volume": None,
-            "device_info": None,
-        }
-    finally:
-        remote.disconnect()
+    connection = _get_connection(integration, device)
+
+    async with connection.lock:
+        try:
+            first_connect = not connection.connected
+            await _connect_locked(connection)
+            if first_connect:
+                # Initial state arrives asynchronously after the Remote v2
+                # connection is established.
+                await asyncio.sleep(0.1)
+
+            remote = connection.remote
+            return {
+                "available": True,
+                "is_on": remote.is_on,
+                "current_app": remote.current_app or None,
+                "volume": remote.volume_info or None,
+                "device_info": remote.device_info or None,
+            }
+        except (CannotConnect, ConnectionClosed):
+            _mark_disconnected(connection)
+            return {
+                "available": False,
+                "is_on": None,
+                "current_app": None,
+                "volume": None,
+                "device_info": None,
+            }
 
 
 async def send_key(integration: Integration, device: Device, command: str) -> None:
@@ -148,18 +201,42 @@ async def send_key(integration: Integration, device: Device, command: str) -> No
     if normalized not in KEY_COMMANDS:
         raise ValueError(f"unsupported Android TV command: {normalized}")
 
-    remote = await _connect(integration, device)
-    try:
-        remote.send_key_command(normalized)
-        await asyncio.sleep(0.05)
-    finally:
-        remote.disconnect()
+    connection = _get_connection(integration, device)
+
+    async with connection.lock:
+        try:
+            await _connect_locked(connection)
+            connection.remote.send_key_command(normalized)
+        except (CannotConnect, ConnectionClosed):
+            # Drop the stale session and retry once on a fresh connection.
+            _mark_disconnected(connection)
+            await _connect_locked(connection)
+            connection.remote.send_key_command(normalized)
 
 
 async def launch(integration: Integration, device: Device, target: str) -> None:
-    remote = await _connect(integration, device)
-    try:
-        remote.send_launch_app_command(target.strip())
-        await asyncio.sleep(0.05)
-    finally:
-        remote.disconnect()
+    target = target.strip()
+    if not target:
+        raise ValueError("Android TV launch target is required")
+
+    connection = _get_connection(integration, device)
+
+    async with connection.lock:
+        try:
+            await _connect_locked(connection)
+            connection.remote.send_launch_app_command(target)
+        except (CannotConnect, ConnectionClosed):
+            _mark_disconnected(connection)
+            await _connect_locked(connection)
+            connection.remote.send_launch_app_command(target)
+
+
+def close_all_connections() -> None:
+    for connection in list(_connections.values()):
+        connection.remote.disconnect()
+        connection.connected = False
+    _connections.clear()
+
+    for session in list(_pairing_sessions.values()):
+        session.remote.disconnect()
+    _pairing_sessions.clear()

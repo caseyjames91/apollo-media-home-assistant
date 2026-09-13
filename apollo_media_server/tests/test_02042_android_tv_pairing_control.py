@@ -24,6 +24,7 @@ class FakeRemote:
         self.commands = []
         self.launches = []
         self.disconnected = False
+        self.connect_count = 0
         self.is_on = True
         self.current_app = "com.google.android.youtube.tv"
         self.volume_info = {"level": 10, "maximum": 25, "muted": False}
@@ -43,6 +44,8 @@ class FakeRemote:
         self.finished_code = code
 
     async def async_connect(self):
+        self.connect_count += 1
+        self.disconnected = False
         return None
 
     def send_key_command(self, command):
@@ -59,6 +62,7 @@ class FakeRemote:
 def android_tv(monkeypatch, tmp_path):
     FakeRemote.instances.clear()
     android_tv_control._pairing_sessions.clear()
+    android_tv_control.close_all_connections()
     monkeypatch.setattr(android_tv_control, "AndroidTVRemote", FakeRemote)
     monkeypatch.setattr(android_tv_control.settings, "data_dir", str(tmp_path))
 
@@ -87,7 +91,8 @@ def android_tv(monkeypatch, tmp_path):
             ["power", "navigation", "volume", "media", "launch_app"]
         ),
     )
-    return integration, device
+    yield integration, device
+    android_tv_control.close_all_connections()
 
 
 def test_android_tv_registry_marks_pairing_and_control():
@@ -113,12 +118,17 @@ async def test_pairing_persists_shared_integration_credentials(android_tv):
 
 
 @pytest.mark.asyncio
-async def test_send_android_tv_key(android_tv):
+async def test_send_android_tv_key_reuses_connection(android_tv):
     integration, device = android_tv
+
     await android_tv_control.send_key(integration, device, "home")
+    await android_tv_control.send_key(integration, device, "dpad_down")
+
     remote = FakeRemote.instances[-1]
-    assert remote.commands == ["HOME"]
-    assert remote.disconnected is True
+    assert remote.commands == ["HOME", "DPAD_DOWN"]
+    assert remote.connect_count == 1
+    assert remote.disconnected is False
+    assert len(android_tv_control._connections) == 1
 
 
 @pytest.mark.asyncio
@@ -129,18 +139,45 @@ async def test_reject_unknown_android_tv_key(android_tv):
 
 
 @pytest.mark.asyncio
-async def test_launch_android_tv_app(android_tv):
+async def test_launch_android_tv_app_reuses_connection(android_tv):
     integration, device = android_tv
+
+    await android_tv_control.send_key(integration, device, "home")
     await android_tv_control.launch(integration, device, "org.xbmc.kodi")
+
     remote = FakeRemote.instances[-1]
+    assert remote.commands == ["HOME"]
     assert remote.launches == ["org.xbmc.kodi"]
+    assert remote.connect_count == 1
+    assert remote.disconnected is False
 
 
 @pytest.mark.asyncio
-async def test_read_android_tv_state(android_tv):
+async def test_read_android_tv_state_reuses_connection(android_tv):
     integration, device = android_tv
-    state = await android_tv_control.get_state(integration, device)
-    assert state["available"] is True
-    assert state["is_on"] is True
-    assert state["current_app"] == "com.google.android.youtube.tv"
-    assert state["volume"]["level"] == 10
+
+    first = await android_tv_control.get_state(integration, device)
+    second = await android_tv_control.get_state(integration, device)
+
+    remote = FakeRemote.instances[-1]
+    assert first["available"] is True
+    assert first["is_on"] is True
+    assert first["current_app"] == "com.google.android.youtube.tv"
+    assert first["volume"]["level"] == 10
+    assert second["current_app"] == first["current_app"]
+    assert remote.connect_count == 1
+    assert remote.disconnected is False
+
+
+@pytest.mark.asyncio
+async def test_close_all_connections_disconnects_remote(android_tv):
+    integration, device = android_tv
+
+    await android_tv_control.send_key(integration, device, "home")
+    remote = FakeRemote.instances[-1]
+    assert remote.disconnected is False
+
+    android_tv_control.close_all_connections()
+
+    assert remote.disconnected is True
+    assert android_tv_control._connections == {}
