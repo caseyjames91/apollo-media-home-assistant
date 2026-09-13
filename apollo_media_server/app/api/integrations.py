@@ -61,7 +61,9 @@ def list_integration_types():
 @router.get("", response_model=list[IntegrationRead])
 def list_integrations(db: Session = Depends(get_db)):
     rows = list(db.scalars(select(Integration).order_by(Integration.kind, Integration.name)))
-    return [_read(row) for row in rows if get_integration_type(row.kind) is not None]
+    # Persisted integrations are authoritative configuration data. Do not hide
+    # legacy or future kinds merely because this runtime lacks a registry entry.
+    return [_read(row) for row in rows]
 
 
 @router.post("", response_model=IntegrationRead)

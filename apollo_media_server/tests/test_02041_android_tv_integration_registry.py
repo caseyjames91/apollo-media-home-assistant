@@ -18,7 +18,17 @@ def test_android_tv_is_first_generalized_controllable_integration():
 
 
 def test_legacy_integration_types_remain_registered():
-    assert {"radarr", "sonarr", "tmdb"}.issubset(INTEGRATION_TYPES)
+    assert {"jellyfin", "radarr", "sonarr", "tmdb"}.issubset(INTEGRATION_TYPES)
+
+
+def test_jellyfin_registry_contract():
+    integration_type = get_integration_type("jellyfin")
+    assert integration_type is not None
+    assert integration_type.requires_base_url is True
+    assert integration_type.requires_access_token is True
+    assert integration_type.discovery is False
+    assert integration_type.pairing is False
+    assert integration_type.control is False
 
 
 def test_integration_types_endpoint_lists_android_tv():
@@ -81,3 +91,32 @@ def test_non_discoverable_integration_rejected():
     client = TestClient(app)
     response = client.get("/integrations/tmdb/discover")
     assert response.status_code == 400
+
+
+
+def test_list_integrations_does_not_hide_unregistered_persisted_rows():
+    import uuid
+    from app.api.integrations import list_integrations
+    from app.models.integration import Integration
+
+    row = Integration(
+        id=uuid.uuid4(),
+        kind="legacy_future_kind",
+        name="default",
+        base_url="",
+        config_json="{}",
+        enabled=True,
+    )
+
+    class FakeScalars:
+        def __iter__(self):
+            return iter([row])
+
+    class FakeDB:
+        def scalars(self, statement):
+            return FakeScalars()
+
+    result = list_integrations(FakeDB())
+    assert len(result) == 1
+    assert result[0].kind == "legacy_future_kind"
+    assert result[0].name == "default"

@@ -22,6 +22,13 @@ INTEGRATION_TYPES: dict[str, IntegrationType] = {
         pairing=True,
         control=True,
     ),
+    "jellyfin": IntegrationType(
+        kind="jellyfin",
+        name="Jellyfin",
+        description="Jellyfin local media server integration.",
+        requires_base_url=True,
+        requires_access_token=True,
+    ),
     "radarr": IntegrationType(
         kind="radarr",
         name="Radarr",
