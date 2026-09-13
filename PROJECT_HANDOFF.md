@@ -6,8 +6,20 @@
 ### Repository state
 
 - Active development branch: `feature/apollo-integrations`
-- Current feature HEAD: `63060c2 — Track Android TV availability and reconnect natively`
-- Full feature HEAD SHA: `63060c2d86929cdad033adf0a44aa9616372493c`
+- Functional/code checkpoint: `63060c2 — Track Android TV availability and reconnect natively`
+- Full functional checkpoint SHA: `63060c2d86929cdad033adf0a44aa9616372493c`
+- Handoff/documentation commit layered directly on top: `9116a89 — Checkpoint Android TV integration runtime validation`
+- Expected branch HEAD immediately after this handoff: `9116a89`
+
+### Why the checkpoint SHA differs from branch HEAD
+
+The functional/code checkpoint described by this handoff is `63060c2 — Track Android TV availability and reconnect natively`.
+
+After that functional commit was created and runtime-validated, `PROJECT_HANDOFF.md` was updated and committed separately as `9116a89 — Checkpoint Android TV integration runtime validation`. Therefore `9116a89` is expected to be the branch HEAD even though the code state being documented is `63060c2`.
+
+`9116a89` has `63060c2` as its direct parent. No Apollo source or runtime behavior changed between those commits; `9116a89` only updates `PROJECT_HANDOFF.md`.
+
+This difference is intentional and must not be interpreted as repository drift. When resuming Apollo, if `feature/apollo-integrations` is at `9116a89`, the repository is exactly at this checkpoint. If HEAD is newer, inspect commits after `9116a89` to determine what work occurred after this handoff.
 - Current `origin/main` baseline: `916bf7d — Release Apollo Media 0.10.64`
 - Full `origin/main` SHA: `916bf7d5a6085c6ba6709b4230fbb49d964ed142`
 - Working tree at checkpoint creation: **clean**
