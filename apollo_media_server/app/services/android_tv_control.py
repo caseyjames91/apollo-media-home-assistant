@@ -225,10 +225,15 @@ async def launch(integration: Integration, device: Device, target: str) -> None:
         try:
             await _connect_locked(connection)
             connection.remote.send_launch_app_command(target)
+            # androidtvremote2 buffers app-link launches and writes them
+            # asynchronously. Give the event loop a brief opportunity to
+            # flush the queued Remote v2 message before returning to the API.
+            await asyncio.sleep(0.1)
         except (CannotConnect, ConnectionClosed):
             _mark_disconnected(connection)
             await _connect_locked(connection)
             connection.remote.send_launch_app_command(target)
+            await asyncio.sleep(0.1)
 
 
 def close_device_connection(device_id: uuid.UUID) -> None:

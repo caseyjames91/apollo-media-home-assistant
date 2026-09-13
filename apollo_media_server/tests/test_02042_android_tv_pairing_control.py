@@ -144,17 +144,26 @@ async def test_reject_unknown_android_tv_key(android_tv):
 
 
 @pytest.mark.asyncio
-async def test_launch_android_tv_app_reuses_connection(android_tv):
+async def test_launch_android_tv_app_reuses_connection(android_tv, monkeypatch):
     integration, device = android_tv
 
     await android_tv_control.send_key(integration, device, "home")
-    await android_tv_control.launch(integration, device, "org.xbmc.kodi")
+
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(android_tv_control.asyncio, "sleep", fake_sleep)
+
+    await android_tv_control.launch(integration, device, "https://www.youtube.com")
 
     remote = FakeRemote.instances[-1]
     assert remote.commands == ["HOME"]
-    assert remote.launches == ["org.xbmc.kodi"]
+    assert remote.launches == ["https://www.youtube.com"]
     assert remote.connect_count == 1
     assert remote.disconnected is False
+    assert sleeps == [0.1]
 
 
 @pytest.mark.asyncio
