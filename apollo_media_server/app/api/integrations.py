@@ -127,6 +127,9 @@ async def discover_integration_devices(
                 host=item.host,
                 port=item.port,
                 model=item.model,
+                mac=item.mac,
+                certificate_name=item.certificate_name,
+                stable_identity=item.stable_identity,
             )
             for item in devices
         ]

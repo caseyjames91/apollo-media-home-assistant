@@ -106,6 +106,46 @@ def _android_tv(device_id: uuid.UUID, db: Session) -> tuple[Device, Integration]
     return device, integration
 
 
+def _legacy_android_tv_match(
+    payload: DeviceImport,
+    db: Session,
+) -> Device | None:
+    if not payload.source_device_id.lower().startswith("mac:"):
+        return None
+
+    host = str(payload.config.get("host", "")).strip()
+    try:
+        port = int(payload.config.get("port", 6466))
+    except (TypeError, ValueError):
+        return None
+
+    if not host:
+        return None
+
+    legacy_source_id = f"{host}:{port}"
+    candidates = list(
+        db.scalars(
+            select(Device).where(
+                Device.integration_id == payload.integration_id,
+                Device.source_device_id == legacy_source_id,
+            )
+        )
+    )
+
+    matches: list[Device] = []
+    for candidate in candidates:
+        config = _json_object(candidate.config_json)
+        candidate_host = str(config.get("host", "")).strip()
+        try:
+            candidate_port = int(config.get("port", 6466))
+        except (TypeError, ValueError):
+            continue
+        if candidate_host == host and candidate_port == port:
+            matches.append(candidate)
+
+    return matches[0] if len(matches) == 1 else None
+
+
 @router.post("/register", response_model=DeviceRead)
 def register_device(payload: DeviceRegister, db: Session = Depends(get_db)):
     row = db.scalar(select(Device).where(Device.device_key == payload.device_key))
@@ -138,6 +178,11 @@ def import_device(payload: DeviceImport, db: Session = Depends(get_db)):
         )
     )
 
+    migrated_legacy_android_tv = False
+    if row is None and integration.kind == "android_tv":
+        row = _legacy_android_tv_match(payload, db)
+        migrated_legacy_android_tv = row is not None
+
     stable_key = f"{integration.kind}:{payload.integration_id}:{payload.source_device_id}"
     if row is None:
         row = Device(
@@ -147,16 +192,19 @@ def import_device(payload: DeviceImport, db: Session = Depends(get_db)):
         )
         db.add(row)
 
-    row.name = payload.name
+    row.device_key = stable_key
     row.integration_id = payload.integration_id
     row.source_device_id = payload.source_device_id
     row.source_name = payload.source_name or payload.name
-    row.room_id = payload.room_id
     row.device_type = payload.device_type
     row.capabilities_json = json.dumps(payload.capabilities, sort_keys=True)
     row.config_json = json.dumps(payload.config, sort_keys=True)
     row.enabled = payload.enabled
     row.last_seen_at = datetime.now(timezone.utc)
+
+    if not migrated_legacy_android_tv:
+        row.name = payload.name
+        row.room_id = payload.room_id
 
     db.commit()
     db.refresh(row)

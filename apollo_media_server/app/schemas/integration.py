@@ -48,4 +48,7 @@ class DiscoveredDevice(BaseModel):
     host: str
     port: int
     model: str | None = None
+    mac: str | None = None
+    certificate_name: str | None = None
+    stable_identity: bool = False
     integration_kind: str = "android_tv"

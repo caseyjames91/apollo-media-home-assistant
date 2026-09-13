@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.integrations.registry import INTEGRATION_TYPES, get_integration_type
 from app.main import app
-from app.services.android_tv import AndroidTVDiscoveredDevice
+from app.services.android_tv import AndroidTVDiscoveredDevice, android_tv_source_id, normalize_mac
 
 
 def test_android_tv_is_first_generalized_controllable_integration():
@@ -31,16 +31,26 @@ def test_integration_types_endpoint_lists_android_tv():
     assert by_kind["android_tv"]["control"] is True
 
 
+def test_android_tv_mac_identity_normalization():
+    assert normalize_mac("B8:7B:D4:F1:F3:88") == "B8:7B:D4:F1:F3:88"
+    assert normalize_mac("b8-7b-d4-f1-f3-88") == "B8:7B:D4:F1:F3:88"
+    assert normalize_mac("not-a-mac") is None
+    assert android_tv_source_id("B8:7B:D4:F1:F3:88") == "mac:b8:7b:d4:f1:f3:88"
+
+
 def test_android_tv_discovery_endpoint(monkeypatch):
     async def fake_discover(timeout: float = 3.0):
         assert timeout == 1.5
         return [
             AndroidTVDiscoveredDevice(
-                source_device_id="10.10.10.50:6466",
+                source_device_id="mac:b8:7b:d4:f1:f3:88",
                 name="Living Room Google TV",
                 host="10.10.10.50",
                 port=6466,
                 model="Google TV Streamer",
+                mac="B8:7B:D4:F1:F3:88",
+                certificate_name="Google TV Streamer",
+                stable_identity=True,
             )
         ]
 
@@ -54,11 +64,14 @@ def test_android_tv_discovery_endpoint(monkeypatch):
     assert response.status_code == 200
     assert response.json() == [
         {
-            "source_device_id": "10.10.10.50:6466",
+            "source_device_id": "mac:b8:7b:d4:f1:f3:88",
             "name": "Living Room Google TV",
             "host": "10.10.10.50",
             "port": 6466,
             "model": "Google TV Streamer",
+            "mac": "B8:7B:D4:F1:F3:88",
+            "certificate_name": "Google TV Streamer",
+            "stable_identity": True,
             "integration_kind": "android_tv",
         }
     ]
