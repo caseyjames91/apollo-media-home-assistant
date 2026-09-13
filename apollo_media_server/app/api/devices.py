@@ -17,6 +17,8 @@ from app.schemas.device import (
     AndroidTVPairStartResult,
     AndroidTVState,
     DeviceCommand,
+    DeviceControlGroup,
+    DeviceControlProfile,
     DeviceImport,
     DeviceLaunch,
     DeviceRead,
@@ -27,6 +29,29 @@ from app.services import android_tv_control
 
 
 router = APIRouter(prefix="/devices", tags=["devices"])
+
+
+ANDROID_TV_CONTROL_GROUPS = {
+    "power": ["POWER"],
+    "navigation": [
+        "DPAD_UP",
+        "DPAD_DOWN",
+        "DPAD_LEFT",
+        "DPAD_RIGHT",
+        "DPAD_CENTER",
+        "BACK",
+        "HOME",
+    ],
+    "volume": ["VOLUME_UP", "VOLUME_DOWN", "MUTE"],
+    "media": [
+        "MEDIA_PLAY",
+        "MEDIA_PAUSE",
+        "MEDIA_PLAY_PAUSE",
+        "MEDIA_STOP",
+        "MEDIA_PREVIOUS",
+        "MEDIA_NEXT",
+    ],
+}
 
 
 def _json_object(raw: str | None) -> dict:
@@ -168,6 +193,41 @@ def update_device(
 def list_devices(db: Session = Depends(get_db)):
     rows = list(db.scalars(select(Device).order_by(Device.name)))
     return [_read(row) for row in rows]
+
+
+@router.get("/{device_id}/controls", response_model=DeviceControlProfile)
+def get_device_controls(device_id: uuid.UUID, db: Session = Depends(get_db)):
+    device = db.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    integration = _integration_for_device(device, db)
+    capabilities = _json_list(device.capabilities_json)
+
+    groups: list[DeviceControlGroup] = []
+    launch_supported = False
+    state_supported = False
+
+    if integration.kind == "android_tv":
+        groups = [
+            DeviceControlGroup(
+                capability=capability,
+                commands=commands,
+            )
+            for capability, commands in ANDROID_TV_CONTROL_GROUPS.items()
+            if capability in capabilities
+        ]
+        launch_supported = "launch_app" in capabilities
+        state_supported = True
+
+    return DeviceControlProfile(
+        device_id=device.id,
+        integration_kind=integration.kind,
+        capabilities=capabilities,
+        control_groups=groups,
+        launch_supported=launch_supported,
+        state_supported=state_supported,
+    )
 
 
 @router.post("/{device_id}/pair/start", response_model=AndroidTVPairStartResult)

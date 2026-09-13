@@ -69,6 +69,20 @@ class DeviceLaunch(BaseModel):
     target: str = Field(min_length=1)
 
 
+class DeviceControlGroup(BaseModel):
+    capability: str
+    commands: list[str] = Field(default_factory=list)
+
+
+class DeviceControlProfile(BaseModel):
+    device_id: uuid.UUID
+    integration_kind: str
+    capabilities: list[str] = Field(default_factory=list)
+    control_groups: list[DeviceControlGroup] = Field(default_factory=list)
+    launch_supported: bool = False
+    state_supported: bool = False
+
+
 class AndroidTVState(BaseModel):
     device_id: uuid.UUID
     available: bool
