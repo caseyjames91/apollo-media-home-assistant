@@ -3,6 +3,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from androidtvremote2 import ConnectionClosed
 
 from app.integrations.registry import get_integration_type
 from app.models.device import Device
@@ -25,6 +26,7 @@ class FakeRemote:
         self.launches = []
         self.disconnected = False
         self.connect_count = 0
+        self.fail_next_command = False
         self.is_on = True
         self.current_app = "com.google.android.youtube.tv"
         self.volume_info = {"level": 10, "maximum": 25, "muted": False}
@@ -49,6 +51,9 @@ class FakeRemote:
         return None
 
     def send_key_command(self, command):
+        if self.fail_next_command:
+            self.fail_next_command = False
+            raise ConnectionClosed()
         self.commands.append(command)
 
     def send_launch_app_command(self, target):
@@ -181,3 +186,33 @@ async def test_close_all_connections_disconnects_remote(android_tv):
 
     assert remote.disconnected is True
     assert android_tv_control._connections == {}
+
+
+@pytest.mark.asyncio
+async def test_android_tv_command_reconnects_after_connection_drop(android_tv):
+    integration, device = android_tv
+
+    await android_tv_control.send_key(integration, device, "home")
+    remote = FakeRemote.instances[-1]
+    assert remote.connect_count == 1
+
+    remote.fail_next_command = True
+    await android_tv_control.send_key(integration, device, "dpad_down")
+
+    assert remote.connect_count == 2
+    assert remote.commands == ["HOME", "DPAD_DOWN"]
+    assert remote.disconnected is False
+    assert android_tv_control._connections[device.id].connected is True
+
+
+@pytest.mark.asyncio
+async def test_close_device_connection_drops_only_requested_device(android_tv):
+    integration, device = android_tv
+
+    await android_tv_control.send_key(integration, device, "home")
+    remote = FakeRemote.instances[-1]
+
+    android_tv_control.close_device_connection(device.id)
+
+    assert remote.disconnected is True
+    assert device.id not in android_tv_control._connections

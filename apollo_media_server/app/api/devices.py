@@ -195,6 +195,22 @@ def list_devices(db: Session = Depends(get_db)):
     return [_read(row) for row in rows]
 
 
+@router.delete("/{device_id}", status_code=204)
+def delete_device(device_id: uuid.UUID, db: Session = Depends(get_db)):
+    device = db.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    if device.integration_id is not None:
+        integration = db.get(Integration, device.integration_id)
+        if integration is not None and integration.kind == "android_tv":
+            android_tv_control.close_device_connection(device.id)
+
+    db.delete(device)
+    db.commit()
+    return None
+
+
 @router.get("/{device_id}/controls", response_model=DeviceControlProfile)
 def get_device_controls(device_id: uuid.UUID, db: Session = Depends(get_db)):
     device = db.get(Device, device_id)

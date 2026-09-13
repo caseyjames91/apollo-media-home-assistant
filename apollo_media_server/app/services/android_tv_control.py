@@ -231,12 +231,20 @@ async def launch(integration: Integration, device: Device, target: str) -> None:
             connection.remote.send_launch_app_command(target)
 
 
-def close_all_connections() -> None:
-    for connection in list(_connections.values()):
+def close_device_connection(device_id: uuid.UUID) -> None:
+    connection = _connections.pop(device_id, None)
+    if connection is not None:
         connection.remote.disconnect()
         connection.connected = False
-    _connections.clear()
 
-    for session in list(_pairing_sessions.values()):
+    session = _pairing_sessions.pop(device_id, None)
+    if session is not None:
         session.remote.disconnect()
-    _pairing_sessions.clear()
+
+
+def close_all_connections() -> None:
+    for device_id in list(_connections):
+        close_device_connection(device_id)
+
+    for device_id in list(_pairing_sessions):
+        close_device_connection(device_id)
