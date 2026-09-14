@@ -2024,3 +2024,475 @@ External providers may supply discovery/catalog/list data, but they do not own A
 
 ### Exact next action
 Begin AMS-owned Watchlist design and implementation from this checkpoint.
+
+---
+
+# Apollo AVA / Android TV IME checkpoint — 2026-09-14 05:35:10 UTC
+
+## Purpose of this checkpoint
+
+This section records the Android TV Remote v2 keyboard/IME work completed during the current Apollo AVA session so a future ChatGPT session can resume without reconstructing the protocol investigation.
+
+The current work is on branch `feature/apollo-integrations`. Production AMS on port 8099 and the separate production-migration validation process on port 18101 were intentionally left untouched. Android TV runtime testing is being performed only against the temporary AMS instance on port 18100.
+
+The source tree used by the 18100 test runtime is the repository itself:
+
+```text
+/home/apollo/apollo-media-home-assistant/apollo_media_server
+```
+
+There is no separate runtime source copy to synchronize.
+
+## Current product sequencing rule
+
+The current Apollo implementation workflow remains:
+
+```text
+prove backend behavior
+→ add it to the Apollo AVA app
+→ prove the app path
+→ move to the next capability
+```
+
+Do not continue adding unrelated backend capabilities while a proven feature is still waiting to be integrated into the app.
+
+The immediate feature being worked is native Android TV text entry from the AVA remote. Bottom-screen/Dynke configuration, app search, Force Close backend, and voice are intentionally deferred.
+
+## User-required keyboard behavior
+
+The user does not want a workaround based on dismissing the TV keyboard with BACK.
+
+Desired behavior matches the official Google TV phone remote:
+
+```text
+TV text field gains focus
+→ TV on-screen keyboard remains visible
+→ Apollo AVA automatically opens its own native Android keyboard
+→ AVA typing is sent through the existing per-device Android TV Remote v2 session
+→ text, backspace, Enter, and cursor movement affect the focused TV field in real time
+```
+
+Apollo-local search/input remains local to Apollo. Only a text field focused on the controlled TV should activate remote keyboard behavior.
+
+## Previously proven AVA-side behavior
+
+Apollo AVA build 1.7.19 already proved automatic native-keyboard opening:
+
+```text
+TV text field focused
+→ AMS reports text_input.active=true
+→ AVA sees the active state
+→ AVA opens native Gboard automatically
+```
+
+The AVA secure setting currently required for the software keyboard to remain available is:
+
+```text
+show_ime_with_hard_keyboard=1
+```
+
+AVA 1.7.19 does not yet forward typed text to AMS. That was intentionally deferred until the correct Remote v2 edit protocol was proven.
+
+## Android TV Remote v2 capability state
+
+Bedroom Google TV Streamer:
+
+```text
+device UUID:
+bcbeb2e3-c26b-4b4e-b54f-ed1bbdcc65ab
+
+host:
+10.10.10.85
+
+MAC:
+B8:7B:D4:F1:F3:88
+
+Remote v2 port:
+6466
+```
+
+The TV advertises Remote v2 capabilities including both IME and VOICE:
+
+```text
+Feature.PING
+Feature.KEY
+Feature.IME
+Feature.VOICE
+Feature.POWER
+Feature.VOLUME
+Feature.APP_LINK
+```
+
+The TV remote service is:
+
+```text
+package: com.google.android.tv.remote.service
+version: 7.00.956317615
+```
+
+## Text-field detection — proven
+
+When the Google TV field "Search for apps and games" is focused, the TV sends:
+
+```text
+remote_ime_key_inject {
+  app_info {
+    counter: ...
+    label: "Search for apps and games"
+    app_package: "com.google.android.apps.tv.launcherx"
+  }
+  text_field_status {
+    counter_field: ...
+    label: "Search for apps and games"
+  }
+}
+
+remote_ime_batch_edit {
+  ime_counter: 1
+  field_counter: 1
+}
+```
+
+The installed Python `androidtvremote2` library preserves only a small subset of this state. Apollo locally wrapped the live protocol object's `_handle_message` method so AMS can preserve the missing IME data in `DeviceConnection.text_input`.
+
+Current exposed state includes:
+
+```text
+active
+label
+value
+start
+end
+app_counter
+counter_field
+field_counter
+ime_counter
+app_package
+```
+
+The relevant Pydantic state schema has also been locally expanded with:
+
+```python
+text_input: dict | None = None
+```
+
+These IME source changes are intentionally still uncommitted while runtime behavior is being proven.
+
+## androidtvremote2 debug logging
+
+The normal AMS configuration exposes `APOLLO_LOG_LEVEL`, but AMS does not apply it to the `androidtvremote2` Python logger. A temporary 18100-only debug launcher was created at:
+
+```text
+/tmp/apollo-18100-debug.py
+```
+
+It calls `logging.basicConfig(level=logging.DEBUG)` and explicitly sets:
+
+```python
+logging.getLogger("androidtvremote2").setLevel(logging.DEBUG)
+```
+
+18100 must be started with the repo source directory on `PYTHONPATH` because the launcher itself lives in `/tmp`:
+
+```text
+PYTHONPATH=/home/apollo/apollo-media-home-assistant/apollo_media_server
+```
+
+This successfully exposed full incoming Remote v2 protobuf messages in:
+
+```text
+~/apollo-androidtv-test-runtime/ams-18100.log
+```
+
+## Critical protocol discovery: androidtvremote2 uses the wrong IME synchronization counters
+
+The Python library's normal `send_text()` creates `RemoteImeBatchEdit` using its own:
+
+```text
+ime_counter
+field_counter
+```
+
+Those values remain 1/1 in the tested session and are not the values Google TV validates when its on-screen keyboard is active.
+
+Reverse engineering of the Google TV Remote Service APK showed that incoming batch edits are rejected unless two generation/state counters match the TV's current input field.
+
+The TV emits clear rejection logs:
+
+```text
+Ignoring edit, the input field has changed from <sent> to <expected>
+Ignoring edit, the input field content has changed from <sent> to <expected>
+```
+
+### First synchronization counter — proven
+
+A normal library packet used first counter 1 while the TV expected values such as 47/49.
+
+Apollo preserved `remote_ime_key_inject.app_info.counter` separately as:
+
+```text
+app_counter
+```
+
+Fresh debug capture later showed:
+
+```text
+app_info.counter: 51
+text_field_status.counter_field: 291
+remote_ime_batch_edit.ime_counter: 1
+remote_ime_batch_edit.field_counter: 1
+```
+
+When a temporary proof packet sent:
+
+```text
+RemoteImeBatchEdit.ime_counter = app_counter
+```
+
+the TV passed the first validation gate and moved to the second rejection:
+
+```text
+Ignoring edit, the input field content has changed from 1 to 291
+```
+
+Therefore:
+
+```text
+RemoteImeBatchEdit.ime_counter
+    = remote_ime_key_inject.app_info.counter
+```
+
+is proven.
+
+### Second synchronization counter — proven
+
+The expected second value in the rejection above was exactly:
+
+```text
+remote_ime_key_inject.text_field_status.counter_field = 291
+```
+
+Apollo therefore changed the temporary proof packet to:
+
+```text
+RemoteImeBatchEdit.field_counter
+    = text_field_status.counter_field
+```
+
+A later live field state was:
+
+```json
+{
+  "active": true,
+  "label": "Search for apps and games",
+  "value": "",
+  "start": 0,
+  "end": 0,
+  "app_counter": 55,
+  "counter_field": 307,
+  "field_counter": 1,
+  "ime_counter": 1,
+  "app_package": "com.google.android.apps.tv.launcherx"
+}
+```
+
+With both synchronized values sent:
+
+```text
+RemoteImeBatchEdit.ime_counter   = 55
+RemoteImeBatchEdit.field_counter = 307
+```
+
+the text:
+
+```text
+APOLLO
+```
+
+appeared immediately in the focused Google TV field **while the TV's own on-screen keyboard remained visible**.
+
+This is the key runtime proof.
+
+## Proven counter mapping
+
+The correct Remote v2 mapping for the tested Google TV implementation is:
+
+```text
+RemoteImeBatchEdit.ime_counter
+    = remote_ime_key_inject.app_info.counter
+
+RemoteImeBatchEdit.field_counter
+    = remote_ime_key_inject.text_field_status.counter_field
+```
+
+The `androidtvremote2` library's exposed batch-edit counters (`ime_counter=1`, `field_counter=1`) are not sufficient for synchronized edits while the TV virtual keyboard is active.
+
+## Current temporary proof implementation
+
+The current local source still contains temporary proof-only commands in the Android TV key-command allowlist, including items used during investigation such as:
+
+```text
+KEYCODE_A
+KEYCODE_DEL
+KEYCODE_ENTER
+TEXT:APOLLO
+TEXT:X
+TEXTFIX:APOLLO
+```
+
+These are not final API design and must be removed before the backend work is considered complete.
+
+The temporary `TEXTFIX:APOLLO` path currently constructs a `RemoteMessage` directly and sends a `remote_ime_batch_edit` through:
+
+```python
+protocol = connection.remote._remote_message_protocol
+protocol._send_message(msg)
+```
+
+Its synchronized counters now use:
+
+```python
+batch.ime_counter = int(connection.text_input["app_counter"])
+batch.field_counter = int(connection.text_input["counter_field"])
+```
+
+The edit body currently mirrors the library's basic insertion structure and was sufficient to prove that synchronized text entry works.
+
+## Important test nuance
+
+A Remote v2 connection restart clears Apollo's in-memory text-field state until the TV emits a fresh IME/key-inject event.
+
+Therefore, after restarting 18100, do **not** immediately send a synchronized edit if `/state` shows:
+
+```text
+active: false
+app_counter: 0
+counter_field: 0
+```
+
+Refocus the TV text field first and verify a fresh state such as:
+
+```text
+active: true
+app_counter: <nonzero live value>
+counter_field: <nonzero live value>
+```
+
+Only then is a synchronized edit test valid.
+
+One intermediate test produced only a lone `O` after a restart with zeroed state. That result is not part of the final protocol proof.
+
+## Other keyboard operations already proven
+
+Before the synchronized-counter discovery, these Remote v2 operations were separately proven while the TV field remained focused but the TV keyboard had been manually hidden:
+
+```text
+text insertion
+KEYCODE_DEL       → Backspace
+KEYCODE_ENTER     → Enter
+DPAD_LEFT/RIGHT   → cursor movement
+text insertion at current cursor
+```
+
+Those tests established that the overall Remote v2 control session and key semantics work.
+
+The new synchronized-counter discovery removes the need to hide the TV keyboard for text insertion.
+
+## Official Google remote comparison
+
+The official Google TV phone remote was tested against the same Bedroom Google TV Streamer.
+
+Observed behavior:
+
+```text
+TV keyboard remains visible
+phone keyboard opens
+phone can type into the TV field live
+```
+
+TV logs showed the official phone and Apollo both open the same:
+
+```text
+virtual-remote
+```
+
+input bridge.
+
+The separate `virtual-remote-2` path was investigated and ruled out as the missing mechanism.
+
+The missing behavior was the synchronized IME edit protocol/state, specifically the correct generation counters documented above.
+
+## Current local files/backups to clean before final commit
+
+During investigation, local backup files were created, including:
+
+```text
+apollo_media_server/app/services/android_tv_control.py.before-counter-field
+apollo_media_server/app/services/android_tv_control.py.before-ime-counter-proof
+apollo_media_server/app/services/android_tv_control.py.before-app-counter
+```
+
+These should remain untracked and should be removed before the final implementation commit.
+
+The temporary debug launcher:
+
+```text
+/tmp/apollo-18100-debug.py
+```
+
+is also test-only and not part of the repository.
+
+## Exact next implementation step
+
+Do **not** wire AVA typing directly into the temporary `TEXTFIX:APOLLO` command.
+
+The next task is to replace the proof path with a proper backend text-input primitive.
+
+Recommended API separation:
+
+```text
+POST /devices/{device_id}/text
+{"text":"..."}
+```
+
+or an equivalent dedicated IME/edit endpoint.
+
+The implementation should:
+
+1. remove `TEXTFIX:APOLLO` from the key-command path;
+2. remove other temporary text proof commands from the permanent key allowlist;
+3. keep normal Android TV key commands in `send_key()`;
+4. add a dedicated text/IME service function;
+5. require a live active text-input state;
+6. build `RemoteImeBatchEdit` using:
+   ```text
+   ime_counter   = connection.text_input["app_counter"]
+   field_counter = connection.text_input["counter_field"]
+   ```
+7. send the edit through the existing persistent per-device Remote v2 protocol;
+8. expose the operation through a clean AMS device endpoint;
+9. prove that endpoint manually while the TV keyboard remains visible;
+10. only after that proof, wire AVA's native Android keyboard edits into the endpoint.
+
+The first inspection planned for that work is to locate the current command route/request schema and then implement the dedicated text endpoint cleanly.
+
+## Release/commit state
+
+This handoff update intentionally does **not** commit the current Android TV IME source changes.
+
+The IME work remains an active runtime experiment until the temporary proof path is replaced with the proper API and tested.
+
+This checkpoint commit should contain only `PROJECT_HANDOFF.md`.
+
+Repository HEAD before this handoff commit:
+
+```text
+6bc85508f1deeda4dfd9786a8973c5bac9d1335f
+```
+
+Branch:
+
+```text
+feature/apollo-integrations
+```
+
